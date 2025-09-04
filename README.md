@@ -65,8 +65,11 @@ Pure Go, no runtime dependencies except xdg-open (or OS equivalent)
 ## TODO / Contributions welcome
 
 [ ] tree view
+
 [ ] add/edit/delete folders
+
 [ ] fuzzy search + highlight matches
+
 [ ] export back to HTML
 
 Feel free to open issues & PRs!

@@ -21,15 +21,15 @@ func main() {
 		}
 		defer file.Close()
 
-		bookmarks, err := ParseBookmarksHTML(file)
+		bookmarks, err := ParseBookmarksHTML(file, db)
 		if err != nil {
 			log.Fatalf("Failed to parse HTML: %v", err)
 		}
 
 		for _, b := range bookmarks {
 			_, err := db.Exec(
-				"INSERT INTO bookmarks (title, url, description, parent_id) VALUES (?, ?, ?, ?)",
-				b.Title, b.URL, b.Description, b.ParentID,
+				"INSERT INTO bookmarks (title, url, description,folder_id) VALUES (?, ?, ?, ?)",
+				b.Title, b.URL, b.Description, b.FolderID,
 			)
 			if err != nil {
 				log.Printf("Insert error: %v", err)
@@ -40,7 +40,9 @@ func main() {
 		return
 	}
 
-	// Запуск UI
 	app := NewApp(db)
-	app.Run()
+	err := app.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

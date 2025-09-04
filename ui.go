@@ -21,6 +21,7 @@ var MODE = map[string]uint8{
 type App struct {
 	db       *sql.DB
 	app      *tview.Application
+	tree     *tview.TreeView
 	list     *tview.List
 	detail   *tview.TextView
 	search   *tview.InputField
@@ -36,6 +37,7 @@ func NewApp(db *sql.DB) *App {
 	return &App{
 		db:     db,
 		app:    tview.NewApplication(),
+		tree:   tview.NewTreeView(),
 		list:   tview.NewList(),
 		detail: tview.NewTextView().SetDynamicColors(true).SetWrap(true),
 		search: tview.NewInputField().SetLabel("Search: "),
@@ -47,8 +49,10 @@ func NewApp(db *sql.DB) *App {
 func (a *App) Run() error {
 	a.list.SetBorder(true).SetTitle("Bookmarks")
 	a.detail.SetBorder(true).SetTitle("Details")
+	a.tree.SetBorder(true).SetTitle("Folders")
 	cols := tview.NewFlex().
-		AddItem(a.list, 0, 1, true).
+		AddItem(a.tree, 0, 1, false).
+		AddItem(a.list, 0, 3, true).
 		AddItem(a.detail, 0, 1, false)
 	main := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(a.search, 1, 0, false).
@@ -59,6 +63,8 @@ func (a *App) Run() error {
 	if err := a.reloadBookmarks(); err != nil {
 		return err
 	}
+
+	a.fillTree()
 
 	a.search.SetChangedFunc(a.onSearchChange)
 	a.search.SetDoneFunc(a.onSearchDone)
@@ -112,19 +118,49 @@ func (a *App) fillList() {
 		a.showDetails()
 	}
 }
+
+// todo: реализовать функцию построения дерева
+func (a *App) fillTree() error {
+	root := tview.NewTreeNode("./")
+
+	a.tree.SetRoot(root)
+	folders, err := ListFolders(a.db)
+
+	if err != nil {
+		return err
+	}
+
+	folderIndexes := make(map[int]int)
+
+	for index, folder := range folders {
+		folderIndexes[folder.ID] = index
+		if folder.ParentID == nil {
+			root.AddChild(tview.NewTreeNode(folder.Name))
+		} else {
+			parent := root.GetChildren()[0].GetChildren()[folderIndexes[*folder.ParentID]]
+			parent.AddChild(tview.NewTreeNode(folder.Name))
+			fmt.Println(parent.GetText())
+		}
+	}
+	return nil
+}
+
 func (a *App) showDetails() {
 	if a.current == nil {
 		a.detail.SetText("")
 		return
 	}
+
 	b := a.current
-	pid := ""
-	if b.ParentID != nil && *b.ParentID != 0 {
-		pid = fmt.Sprintf("%d", *b.ParentID)
+
+	folderName := "/"
+	if b.FolderName != nil {
+		folderName = *b.FolderName
 	}
+
 	text := fmt.Sprintf(
-		"[::b]Title:[::-]\n%s\n\n[::b]URL:[::-]\n%s\n\n[::b]Description:[::-]\n%s\n\n[::b]Folder ID:[::-]\n%s",
-		b.Title, b.URL, b.Description, pid)
+		"[::b]Title:[::-]\n%s\n\n[::b]URL:[::-]\n%s\n\n[::b]Description:[::-]\n%s\n\n[::b]Folder:[::-]\n%s",
+		b.Title, b.URL, b.Description, folderName)
 	a.detail.SetText(text)
 }
 
@@ -207,8 +243,8 @@ func (a *App) showForm(b *Bookmark, edit bool) {
 	url := b.URL
 	desc := b.Description
 	var folder string
-	if b.ParentID != nil && *b.ParentID != 0 {
-		folder = fmt.Sprintf("%d", *b.ParentID)
+	if b.FolderID != nil && *b.FolderID != 0 {
+		folder = fmt.Sprintf("%d", *b.FolderID)
 	} else {
 		folder = "0"
 	}
@@ -219,9 +255,9 @@ func (a *App) showForm(b *Bookmark, edit bool) {
 	form.AddInputField("Folder (ID)", folder, 10, nil, func(t string) {
 		if id, err := strconv.Atoi(t); err == nil {
 			if id == 0 {
-				b.ParentID = nil
+				b.FolderID = nil
 			} else {
-				b.ParentID = &id
+				b.FolderID = &id
 			}
 		}
 	})

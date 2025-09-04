@@ -13,16 +13,25 @@ func InitDB(path string) *sql.DB {
 		log.Fatal(err)
 	}
 
-	createTable := `
-	CREATE TABLE IF NOT EXISTS bookmarks (
+	createTables := `
+  CREATE TABLE IF NOT EXISTS folders (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		title TEXT,
-		url TEXT,
-		description TEXT,
+		name TEXT,
 		parent_id INTEGER,
-		FOREIGN KEY(parent_id) REFERENCES bookmarks(id)
-	);`
-	_, err = db.Exec(createTable)
+		FOREIGN KEY(parent_id) REFERENCES folders(id)
+	);
+
+  CREATE TABLE IF NOT EXISTS "bookmarks" (
+    "id"	INTEGER,
+    "title"	TEXT,
+    "url"	TEXT,
+    "description"	TEXT,
+    "folder_id"	INTEGER,
+    FOREIGN KEY("folder_id") REFERENCES "bookmarks"("id"),
+    PRIMARY KEY("id" AUTOINCREMENT)
+  );
+  `
+	_, err = db.Exec(createTables)
 	if err != nil {
 		log.Fatal(err)
 	}

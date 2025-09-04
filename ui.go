@@ -12,6 +12,12 @@ import (
 	"github.com/rivo/tview"
 )
 
+var MODE = map[string]uint8{
+	"normal": 1,
+	"search": 2,
+	"form":   3,
+}
+
 type App struct {
 	db       *sql.DB
 	app      *tview.Application
@@ -19,7 +25,7 @@ type App struct {
 	detail   *tview.TextView
 	search   *tview.InputField
 	pages    *tview.Pages
-	mode     string // normal | search | form
+	mode     uint8
 	all      []Bookmark
 	filtered []Bookmark
 	current  *Bookmark
@@ -34,7 +40,7 @@ func NewApp(db *sql.DB) *App {
 		detail: tview.NewTextView().SetDynamicColors(true).SetWrap(true),
 		search: tview.NewInputField().SetLabel("Search: "),
 		pages:  tview.NewPages(),
-		mode:   "normal",
+		mode:   MODE["normal"],
 		status: tview.NewTextView().SetDynamicColors(true),
 	}
 }
@@ -66,7 +72,7 @@ func (a *App) Run() error {
 
 func (a *App) updateStatus() {
 	a.status.SetText(
-		"[::b]/[::-] search  [::b]a[::-] add  [::b]e[::-] edit  [::b]d[::-] del  [::b]Enter[::-] open",
+		"[::b]/[::-] search  [::b]a[::-] add  [::b]e[::-] edit  [::b]d[::-] del  [::b]Enter[::-] open  [::b]q[::-] close",
 	)
 }
 
@@ -123,12 +129,12 @@ func (a *App) showDetails() {
 }
 
 // ----------------------- режимы -----------------------
-func (a *App) setMode(m string) {
+func (a *App) setMode(m uint8) {
 	a.mode = m
 	switch m {
-	case "search":
+	case MODE["search"]:
 		a.app.SetFocus(a.search)
-	case "normal":
+	case MODE["normal"]:
 		a.app.SetFocus(a.list)
 	}
 }
@@ -138,11 +144,11 @@ func (a *App) onSearchChange(text string) {
 func (a *App) onSearchDone(key tcell.Key) {
 	switch key {
 	case tcell.KeyEnter:
-		a.setMode("normal")
+		a.setMode(MODE["normal"])
 	case tcell.KeyEscape:
 		a.search.SetText("")
 		a.applyFilter("")
-		a.setMode("normal")
+		a.setMode(MODE["normal"])
 	}
 }
 
@@ -155,7 +161,7 @@ func (a *App) onSelect(index int, mainText, secondaryText string, shortcut rune)
 
 func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 	switch a.mode {
-	case "normal":
+	case MODE["normal"]:
 		switch event.Key() {
 		case tcell.KeyEnter:
 			if a.current != nil && a.current.URL != "" {
@@ -165,7 +171,7 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case '/':
-				a.setMode("search")
+				a.setMode(MODE["search"])
 				return nil
 			case 'a':
 				a.showForm(&Bookmark{}, false)
@@ -186,11 +192,11 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 				return nil
 			}
 		}
-	case "form":
+	case MODE["form"]:
 		switch event.Key() {
 		case tcell.KeyEscape:
 			a.pages.RemovePage("form")
-			a.setMode("normal")
+			a.setMode(MODE["normal"])
 		}
 	}
 	return event
@@ -231,17 +237,17 @@ func (a *App) showForm(b *Bookmark, edit bool) {
 			a.reloadBookmarks()
 		}
 		a.pages.RemovePage("form")
-		a.setMode("normal")
+		a.setMode(MODE["normal"])
 	})
 	form.AddButton("Cancel", func() {
 		a.pages.RemovePage("form")
-		a.setMode("normal")
+		a.setMode(MODE["normal"])
 	})
 
 	form.SetBorder(true).SetTitle("Bookmark")
 	a.pages.AddPage("form", form, true, true)
 	a.app.SetFocus(form)
-	a.mode = "form"
+	a.mode = MODE["form"]
 }
 
 func openURL(url string) {

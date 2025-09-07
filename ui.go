@@ -12,14 +12,21 @@ import (
 	"github.com/rivo/tview"
 )
 
+var MODE = map[string]uint8{
+	"normal": 1,
+	"search": 2,
+	"form":   3,
+}
+
 type App struct {
 	db       *sql.DB
 	app      *tview.Application
+	tree     *tview.TreeView
 	list     *tview.List
 	detail   *tview.TextView
 	search   *tview.InputField
 	pages    *tview.Pages
-	mode     string // normal | search | form
+	mode     uint8
 	all      []Bookmark
 	filtered []Bookmark
 	current  *Bookmark
@@ -30,19 +37,22 @@ func NewApp(db *sql.DB) *App {
 	return &App{
 		db:     db,
 		app:    tview.NewApplication(),
+		tree:   tview.NewTreeView(),
 		list:   tview.NewList(),
 		detail: tview.NewTextView().SetDynamicColors(true).SetWrap(true),
 		search: tview.NewInputField().SetLabel("Search: "),
 		pages:  tview.NewPages(),
-		mode:   "normal",
+		mode:   MODE["normal"],
 		status: tview.NewTextView().SetDynamicColors(true),
 	}
 }
 func (a *App) Run() error {
 	a.list.SetBorder(true).SetTitle("Bookmarks")
 	a.detail.SetBorder(true).SetTitle("Details")
+	a.tree.SetBorder(true).SetTitle("Folders")
 	cols := tview.NewFlex().
-		AddItem(a.list, 0, 1, true).
+		AddItem(a.tree, 0, 1, false).
+		AddItem(a.list, 0, 3, true).
 		AddItem(a.detail, 0, 1, false)
 	main := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(a.search, 1, 0, false).
@@ -53,6 +63,8 @@ func (a *App) Run() error {
 	if err := a.reloadBookmarks(); err != nil {
 		return err
 	}
+
+	a.fillTree()
 
 	a.search.SetChangedFunc(a.onSearchChange)
 	a.search.SetDoneFunc(a.onSearchDone)
@@ -66,7 +78,7 @@ func (a *App) Run() error {
 
 func (a *App) updateStatus() {
 	a.status.SetText(
-		"[::b]/[::-] search  [::b]a[::-] add  [::b]e[::-] edit  [::b]d[::-] del  [::b]Enter[::-] open",
+		"[::b]/[::-] search  [::b]a[::-] add  [::b]e[::-] edit  [::b]d[::-] del  [::b]Enter[::-] open  [::b]q[::-] close",
 	)
 }
 
@@ -106,29 +118,83 @@ func (a *App) fillList() {
 		a.showDetails()
 	}
 }
+
+func (a *App) fillTree() error {
+	folders, err := ListFolders(a.db)
+	if err != nil {
+		return err
+	}
+
+	nodes := make(map[int]*tview.TreeNode, len(folders))
+	for _, folder := range folders {
+		node := tview.NewTreeNode(folder.Name).
+			SetReference(folder.ID)
+		nodes[folder.ID] = node
+	}
+
+	rootAdded := false
+	for _, folder := range folders {
+		n := nodes[folder.ID]
+		if folder.ParentID == nil || *folder.ParentID == 0 {
+			if !rootAdded {
+				a.tree.SetRoot(n)
+				rootAdded = true
+			} else {
+				if a.tree.GetRoot() == nil {
+					r := tview.NewTreeNode("./")
+					a.tree.SetRoot(r)
+					rootAdded = true
+				}
+				a.tree.GetRoot().AddChild(n)
+			}
+		} else {
+			if p, ok := nodes[*folder.ParentID]; ok {
+				p.AddChild(n)
+			} else {
+				if a.tree.GetRoot() == nil {
+					r := tview.NewTreeNode("./")
+					a.tree.SetRoot(r)
+					rootAdded = true
+				}
+				a.tree.GetRoot().AddChild(n)
+			}
+		}
+	}
+
+	if a.tree.GetRoot() == nil {
+		a.tree.SetRoot(tview.NewTreeNode("./"))
+	}
+
+	a.tree.GetRoot().SetExpanded(true)
+	return nil
+}
+
 func (a *App) showDetails() {
 	if a.current == nil {
 		a.detail.SetText("")
 		return
 	}
+
 	b := a.current
-	pid := ""
-	if b.ParentID != nil && *b.ParentID != 0 {
-		pid = fmt.Sprintf("%d", *b.ParentID)
+
+	folderName := "/"
+	if b.FolderName != nil {
+		folderName = *b.FolderName
 	}
+
 	text := fmt.Sprintf(
-		"[::b]Title:[::-]\n%s\n\n[::b]URL:[::-]\n%s\n\n[::b]Description:[::-]\n%s\n\n[::b]Folder ID:[::-]\n%s",
-		b.Title, b.URL, b.Description, pid)
+		"[::b]Title:[::-]\n%s\n\n[::b]URL:[::-]\n%s\n\n[::b]Description:[::-]\n%s\n\n[::b]Folder:[::-]\n%s",
+		b.Title, b.URL, b.Description, folderName)
 	a.detail.SetText(text)
 }
 
 // ----------------------- режимы -----------------------
-func (a *App) setMode(m string) {
+func (a *App) setMode(m uint8) {
 	a.mode = m
 	switch m {
-	case "search":
+	case MODE["search"]:
 		a.app.SetFocus(a.search)
-	case "normal":
+	case MODE["normal"]:
 		a.app.SetFocus(a.list)
 	}
 }
@@ -138,11 +204,11 @@ func (a *App) onSearchChange(text string) {
 func (a *App) onSearchDone(key tcell.Key) {
 	switch key {
 	case tcell.KeyEnter:
-		a.setMode("normal")
+		a.setMode(MODE["normal"])
 	case tcell.KeyEscape:
 		a.search.SetText("")
 		a.applyFilter("")
-		a.setMode("normal")
+		a.setMode(MODE["normal"])
 	}
 }
 
@@ -155,7 +221,7 @@ func (a *App) onSelect(index int, mainText, secondaryText string, shortcut rune)
 
 func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 	switch a.mode {
-	case "normal":
+	case MODE["normal"]:
 		switch event.Key() {
 		case tcell.KeyEnter:
 			if a.current != nil && a.current.URL != "" {
@@ -165,7 +231,7 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case '/':
-				a.setMode("search")
+				a.setMode(MODE["search"])
 				return nil
 			case 'a':
 				a.showForm(&Bookmark{}, false)
@@ -186,11 +252,11 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 				return nil
 			}
 		}
-	case "form":
+	case MODE["form"]:
 		switch event.Key() {
 		case tcell.KeyEscape:
 			a.pages.RemovePage("form")
-			a.setMode("normal")
+			a.setMode(MODE["normal"])
 		}
 	}
 	return event
@@ -201,8 +267,8 @@ func (a *App) showForm(b *Bookmark, edit bool) {
 	url := b.URL
 	desc := b.Description
 	var folder string
-	if b.ParentID != nil && *b.ParentID != 0 {
-		folder = fmt.Sprintf("%d", *b.ParentID)
+	if b.FolderID != nil && *b.FolderID != 0 {
+		folder = fmt.Sprintf("%d", *b.FolderID)
 	} else {
 		folder = "0"
 	}
@@ -213,9 +279,9 @@ func (a *App) showForm(b *Bookmark, edit bool) {
 	form.AddInputField("Folder (ID)", folder, 10, nil, func(t string) {
 		if id, err := strconv.Atoi(t); err == nil {
 			if id == 0 {
-				b.ParentID = nil
+				b.FolderID = nil
 			} else {
-				b.ParentID = &id
+				b.FolderID = &id
 			}
 		}
 	})
@@ -231,17 +297,17 @@ func (a *App) showForm(b *Bookmark, edit bool) {
 			a.reloadBookmarks()
 		}
 		a.pages.RemovePage("form")
-		a.setMode("normal")
+		a.setMode(MODE["normal"])
 	})
 	form.AddButton("Cancel", func() {
 		a.pages.RemovePage("form")
-		a.setMode("normal")
+		a.setMode(MODE["normal"])
 	})
 
 	form.SetBorder(true).SetTitle("Bookmark")
 	a.pages.AddPage("form", form, true, true)
 	a.app.SetFocus(form)
-	a.mode = "form"
+	a.mode = MODE["form"]
 }
 
 func openURL(url string) {

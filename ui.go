@@ -126,16 +126,16 @@ func (a *App) fillTree() error {
 	}
 
 	nodes := make(map[int]*tview.TreeNode, len(folders))
-	for _, f := range folders {
-		node := tview.NewTreeNode(f.Name).
-			SetReference(f.ID)
-		nodes[f.ID] = node
+	for _, folder := range folders {
+		node := tview.NewTreeNode(folder.Name).
+			SetReference(folder.ID)
+		nodes[folder.ID] = node
 	}
 
 	rootAdded := false
-	for _, f := range folders {
-		n := nodes[f.ID]
-		if f.ParentID == nil || *f.ParentID == 0 {
+	for _, folder := range folders {
+		n := nodes[folder.ID]
+		if folder.ParentID == nil || *folder.ParentID == 0 {
 			if !rootAdded {
 				a.tree.SetRoot(n)
 				rootAdded = true
@@ -148,7 +148,7 @@ func (a *App) fillTree() error {
 				a.tree.GetRoot().AddChild(n)
 			}
 		} else {
-			if p, ok := nodes[*f.ParentID]; ok {
+			if p, ok := nodes[*folder.ParentID]; ok {
 				p.AddChild(n)
 			} else {
 				if a.tree.GetRoot() == nil {

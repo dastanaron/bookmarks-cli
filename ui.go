@@ -119,29 +119,53 @@ func (a *App) fillList() {
 	}
 }
 
-// todo: реализовать функцию построения дерева
 func (a *App) fillTree() error {
-	root := tview.NewTreeNode("./")
-
-	a.tree.SetRoot(root)
 	folders, err := ListFolders(a.db)
-
 	if err != nil {
 		return err
 	}
 
-	folderIndexes := make(map[int]int)
+	nodes := make(map[int]*tview.TreeNode, len(folders))
+	for _, f := range folders {
+		node := tview.NewTreeNode(f.Name).
+			SetReference(f.ID)
+		nodes[f.ID] = node
+	}
 
-	for index, folder := range folders {
-		folderIndexes[folder.ID] = index
-		if folder.ParentID == nil {
-			root.AddChild(tview.NewTreeNode(folder.Name))
+	rootAdded := false
+	for _, f := range folders {
+		n := nodes[f.ID]
+		if f.ParentID == nil || *f.ParentID == 0 {
+			if !rootAdded {
+				a.tree.SetRoot(n)
+				rootAdded = true
+			} else {
+				if a.tree.GetRoot() == nil {
+					r := tview.NewTreeNode("./")
+					a.tree.SetRoot(r)
+					rootAdded = true
+				}
+				a.tree.GetRoot().AddChild(n)
+			}
 		} else {
-			parent := root.GetChildren()[0].GetChildren()[folderIndexes[*folder.ParentID]]
-			parent.AddChild(tview.NewTreeNode(folder.Name))
-			fmt.Println(parent.GetText())
+			if p, ok := nodes[*f.ParentID]; ok {
+				p.AddChild(n)
+			} else {
+				if a.tree.GetRoot() == nil {
+					r := tview.NewTreeNode("./")
+					a.tree.SetRoot(r)
+					rootAdded = true
+				}
+				a.tree.GetRoot().AddChild(n)
+			}
 		}
 	}
+
+	if a.tree.GetRoot() == nil {
+		a.tree.SetRoot(tview.NewTreeNode("./"))
+	}
+
+	a.tree.GetRoot().SetExpanded(true)
 	return nil
 }
 

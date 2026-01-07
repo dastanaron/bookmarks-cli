@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
-	"strconv"
 
 	"github.com/dastanaron/bookmarks/internal/models"
 	"github.com/dastanaron/bookmarks/internal/service"
@@ -172,6 +171,10 @@ func (a *App) onFolderSelect(item folderItem) {
 
 	// Обновить статус бар
 	a.updateStatus()
+
+	// Переключить фокус на список закладок для удобства
+	a.focusOnFolders = false
+	a.app.SetFocus(a.list)
 
 	// НЕ вызываем app.Draw() здесь - это может вызвать зависание
 	// UI обновится автоматически при следующем цикле обработки событий
@@ -443,24 +446,52 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 	title := b.Title
 	url := b.URL
 	desc := b.Description
-	var folder string
-	if b.FolderID != nil && *b.FolderID != 0 {
-		folder = fmt.Sprintf("%d", *b.FolderID)
-	} else {
-		folder = "0"
+
+	// Получаем список всех папок для выпадающего списка
+	folders, err := a.folderSvc.ListAll()
+	if err != nil {
+		// В случае ошибки используем пустой список
+		folders = []models.Folder{}
+	}
+
+	// Создаем список опций для выпадающего списка
+	// Первая опция - "None" (нет папки)
+	folderOptions := []string{"None"}
+	folderIDs := make([]*int, 1, len(folders)+1)
+	folderIDs[0] = nil // nil означает отсутствие папки
+
+	// Добавляем все папки
+	// Важно: создаем копии ID в отдельном слайсе, чтобы избежать проблем с указателями
+	folderIDValues := make([]int, len(folders))
+	for i, folder := range folders {
+		folderOptions = append(folderOptions, folder.Name)
+		folderIDValues[i] = folder.ID                     // Сохраняем копию ID
+		folderIDs = append(folderIDs, &folderIDValues[i]) // Указатель на элемент слайса
+	}
+
+	// Находим индекс текущей выбранной папки
+	selectedIndex := 0 // По умолчанию "None"
+	if b.FolderID != nil {
+		for i, folderID := range folderIDs {
+			if folderID != nil && *folderID == *b.FolderID {
+				selectedIndex = i
+				break
+			}
+		}
 	}
 
 	form := tview.NewForm()
 	form.AddInputField("Title", title, 60, nil, func(t string) { b.Title = t })
 	form.AddInputField("URL", url, 60, nil, func(t string) { b.URL = t })
 	form.AddInputField("Description", desc, 60, nil, func(t string) { b.Description = t })
-	form.AddInputField("Folder (ID)", folder, 10, nil, func(t string) {
-		if id, err := strconv.Atoi(t); err == nil {
-			if id == 0 {
-				b.FolderID = nil
-			} else {
-				b.FolderID = &id
-			}
+
+	// Добавляем выпадающий список для выбора папки
+	form.AddDropDown("Folder", folderOptions, selectedIndex, func(option string, index int) {
+		// Устанавливаем FolderID в зависимости от выбранной опции
+		if index >= 0 && index < len(folderIDs) {
+			b.FolderID = folderIDs[index]
+		} else {
+			b.FolderID = nil
 		}
 	})
 

@@ -13,6 +13,7 @@ type Bookmark struct {
 	Title       string
 	URL         string
 	Description string
+	Icon        *string // Base64-encoded icon image (nullable)
 	FolderID    *int
 	FolderName  *string
 }

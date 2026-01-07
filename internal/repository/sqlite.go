@@ -10,9 +10,9 @@ import (
 
 // SQLiteRepository implements Repository using SQLite
 type SQLiteRepository struct {
-	db          *sql.DB
-	bookmarks   *bookmarkRepo
-	folders     *folderRepo
+	db        *sql.DB
+	bookmarks *bookmarkRepo
+	folders   *folderRepo
 }
 
 // NewSQLiteRepository creates a new SQLite repository
@@ -50,6 +50,7 @@ func initSchema(db *sql.DB) error {
 		title TEXT NOT NULL,
 		url TEXT NOT NULL,
 		description TEXT,
+		icon TEXT,
 		folder_id INTEGER,
 		FOREIGN KEY(folder_id) REFERENCES folders(id)
 	);
@@ -57,8 +58,28 @@ func initSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder_id);
 	CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 	`
-	_, err := db.Exec(createTables)
-	return err
+	if _, err := db.Exec(createTables); err != nil {
+		return err
+	}
+
+	// Migration: add icon column if it doesn't exist
+	// SQLite doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN,
+	// so we check if the column exists first
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('bookmarks') WHERE name = 'icon'
+	`).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err = db.Exec(`ALTER TABLE bookmarks ADD COLUMN icon TEXT`)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Bookmarks returns the bookmark repository
@@ -83,7 +104,7 @@ type bookmarkRepo struct {
 
 func (r *bookmarkRepo) List() ([]models.Bookmark, error) {
 	rows, err := r.db.Query(`
-		SELECT b.id, b.title, b.url, b.description, b.folder_id, f.name 
+		SELECT b.id, b.title, b.url, b.description, b.icon, b.folder_id, f.name 
 		FROM bookmarks AS b
 		LEFT JOIN folders AS f ON f.id = b.folder_id 
 		WHERE b.url <> '' 
@@ -97,7 +118,7 @@ func (r *bookmarkRepo) List() ([]models.Bookmark, error) {
 	var bookmarks []models.Bookmark
 	for rows.Next() {
 		var b models.Bookmark
-		if err := rows.Scan(&b.ID, &b.Title, &b.URL, &b.Description, &b.FolderID, &b.FolderName); err != nil {
+		if err := rows.Scan(&b.ID, &b.Title, &b.URL, &b.Description, &b.Icon, &b.FolderID, &b.FolderName); err != nil {
 			return nil, err
 		}
 		bookmarks = append(bookmarks, b)
@@ -108,12 +129,12 @@ func (r *bookmarkRepo) List() ([]models.Bookmark, error) {
 func (r *bookmarkRepo) GetByID(id int) (*models.Bookmark, error) {
 	var b models.Bookmark
 	err := r.db.QueryRow(`
-		SELECT b.id, b.title, b.url, b.description, b.folder_id, f.name 
+		SELECT b.id, b.title, b.url, b.description, b.icon, b.folder_id, f.name 
 		FROM bookmarks AS b
 		LEFT JOIN folders AS f ON f.id = b.folder_id 
 		WHERE b.id = ?
-	`, id).Scan(&b.ID, &b.Title, &b.URL, &b.Description, &b.FolderID, &b.FolderName)
-	
+	`, id).Scan(&b.ID, &b.Title, &b.URL, &b.Description, &b.Icon, &b.FolderID, &b.FolderName)
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -125,8 +146,8 @@ func (r *bookmarkRepo) GetByID(id int) (*models.Bookmark, error) {
 
 func (r *bookmarkRepo) Create(b *models.Bookmark) error {
 	res, err := r.db.Exec(
-		`INSERT INTO bookmarks(title, url, description, folder_id) VALUES (?, ?, ?, ?)`,
-		b.Title, b.URL, b.Description, b.FolderID,
+		`INSERT INTO bookmarks(title, url, description, icon, folder_id) VALUES (?, ?, ?, ?, ?)`,
+		b.Title, b.URL, b.Description, b.Icon, b.FolderID,
 	)
 	if err != nil {
 		return err
@@ -141,8 +162,8 @@ func (r *bookmarkRepo) Create(b *models.Bookmark) error {
 
 func (r *bookmarkRepo) Update(b *models.Bookmark) error {
 	_, err := r.db.Exec(
-		`UPDATE bookmarks SET title = ?, url = ?, description = ?, folder_id = ? WHERE id = ?`,
-		b.Title, b.URL, b.Description, b.FolderID, b.ID,
+		`UPDATE bookmarks SET title = ?, url = ?, description = ?, icon = ?, folder_id = ? WHERE id = ?`,
+		b.Title, b.URL, b.Description, b.Icon, b.FolderID, b.ID,
 	)
 	return err
 }
@@ -179,7 +200,7 @@ func (r *folderRepo) GetByID(id int) (*models.Folder, error) {
 	var f models.Folder
 	err := r.db.QueryRow(`SELECT id, name, parent_id FROM folders WHERE id = ?`, id).
 		Scan(&f.ID, &f.Name, &f.ParentID)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -202,7 +223,7 @@ func (r *folderRepo) Create(name string, parentID *int) (*models.Folder, error) 
 }
 
 func (r *folderRepo) Update(f *models.Folder) error {
-	_, err := r.db.Exec(`UPDATE folders SET name = ?, parent_id = ? WHERE id = ?`, 
+	_, err := r.db.Exec(`UPDATE folders SET name = ?, parent_id = ? WHERE id = ?`,
 		f.Name, f.ParentID, f.ID)
 	return err
 }
@@ -218,7 +239,7 @@ func (r *folderRepo) Upsert(name string, parentID *int) (*models.Folder, error) 
 		`SELECT id FROM folders WHERE name = ? AND (parent_id IS ? OR parent_id = ?)`,
 		name, parentID, parentID,
 	).Scan(&id)
-	
+
 	if err == nil {
 		return &models.Folder{ID: id, Name: name, ParentID: parentID}, nil
 	}

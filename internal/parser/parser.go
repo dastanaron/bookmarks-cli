@@ -60,6 +60,10 @@ func (p *Parser) ParseBookmarksHTML(r io.Reader) ([]models.Bookmark, error) {
 				if attr.Key == "href" {
 					b.URL = attr.Val
 				}
+				if attr.Key == "icon" {
+					iconVal := attr.Val
+					b.Icon = &iconVal
+				}
 			}
 			if n.FirstChild != nil {
 				b.Title = strings.TrimSpace(n.FirstChild.Data)

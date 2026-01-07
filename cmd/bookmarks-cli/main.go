@@ -15,6 +15,7 @@ import (
 
 func main() {
 	importPath := flag.String("import", "", "Path to HTML bookmarks file to import")
+	exportPath := flag.String("export", "", "Path to HTML bookmarks file to export")
 	dbPath := flag.String("db", "", "Path to database file (default: ~/.bookmarks/bookmarks.db)")
 	flag.Parse()
 
@@ -44,11 +45,20 @@ func main() {
 		return
 	}
 
+	// Handle export command
+	if *exportPath != "" {
+		exportCmd := commands.NewExportCommand(repo)
+		if err := exportCmd.Execute(*exportPath); err != nil {
+			log.Fatalf("Export failed: %v", err)
+		}
+		return
+	}
+
 	// Run TUI application
 	bookmarkSvc := service.NewBookmarkService(repo)
 	folderSvc := service.NewFolderService(repo)
 	app := ui.NewApp(bookmarkSvc, folderSvc)
-	
+
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}

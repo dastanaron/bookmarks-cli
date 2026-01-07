@@ -19,11 +19,18 @@ const (
 	ModeForm   = 3
 )
 
+// folderItem представляет элемент папки в списке
+type folderItem struct {
+	ID    *int // nil для "All Bookmarks"
+	Name  string
+	Level int // уровень вложенности (0 = корень)
+}
+
 // App represents the TUI application
 type App struct {
 	app            *tview.Application
-	tree           *tview.TreeView
-	list           *tview.List
+	folderList     *tview.List // список папок вместо дерева
+	list           *tview.List // список закладок
 	detail         *tview.TextView
 	search         *tview.InputField
 	pages          *tview.Pages
@@ -34,15 +41,16 @@ type App struct {
 	status         *tview.TextView
 	bookmarkSvc    *service.BookmarkService
 	folderSvc      *service.FolderService
-	selectedFolder *int // ID выбранной папки, nil = все закладки
-	focusOnTree    bool // true = фокус на дереве, false = на списке
+	selectedFolder *int         // ID выбранной папки, nil = все закладки
+	focusOnFolders bool         // true = фокус на списке папок, false = на списке закладок
+	folderItems    []folderItem // список папок для быстрого доступа
 }
 
 // NewApp creates a new application instance
 func NewApp(bookmarkSvc *service.BookmarkService, folderSvc *service.FolderService) *App {
 	return &App{
 		app:            tview.NewApplication(),
-		tree:           tview.NewTreeView(),
+		folderList:     tview.NewList(),
 		list:           tview.NewList(),
 		detail:         tview.NewTextView().SetDynamicColors(true).SetWrap(true),
 		search:         tview.NewInputField().SetLabel("Search: "),
@@ -52,7 +60,8 @@ func NewApp(bookmarkSvc *service.BookmarkService, folderSvc *service.FolderServi
 		bookmarkSvc:    bookmarkSvc,
 		folderSvc:      folderSvc,
 		selectedFolder: nil, // По умолчанию показываем все закладки
-		focusOnTree:    false,
+		focusOnFolders: false,
+		folderItems:    []folderItem{},
 	}
 }
 
@@ -60,10 +69,10 @@ func NewApp(bookmarkSvc *service.BookmarkService, folderSvc *service.FolderServi
 func (a *App) Run() error {
 	a.list.SetBorder(true).SetTitle("Bookmarks")
 	a.detail.SetBorder(true).SetTitle("Details")
-	a.tree.SetBorder(true).SetTitle("Folders")
+	a.folderList.SetBorder(true).SetTitle("Folders")
 
 	cols := tview.NewFlex().
-		AddItem(a.tree, 0, 1, false).
+		AddItem(a.folderList, 0, 1, false).
 		AddItem(a.list, 0, 3, true).
 		AddItem(a.detail, 0, 1, false)
 
@@ -78,7 +87,7 @@ func (a *App) Run() error {
 		return err
 	}
 
-	if err := a.fillTree(); err != nil {
+	if err := a.fillFolderList(); err != nil {
 		return err
 	}
 
@@ -86,33 +95,23 @@ func (a *App) Run() error {
 	a.search.SetDoneFunc(a.onSearchDone)
 	a.list.SetChangedFunc(a.onSelect)
 
-	// Обработчик выбора в дереве - вызывается при изменении выделения
-	// Но мы будем применять фильтр только при явном нажатии Enter/Space
-	a.tree.SetSelectedFunc(func(node *tview.TreeNode) {
-		// Этот обработчик вызывается при навигации, но мы не применяем фильтр здесь
-		// Фильтр применяется только при нажатии Enter/Space в globalInput
-	})
-
-	// Обработчик ввода для дерева - передаем все события в globalInput
-	a.tree.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		// Просто передаем событие дальше, обработка будет в globalInput
-		return event
-	})
+	// SetSelectedFunc не используем - выбор обрабатывается через Enter в globalInput
+	// Это позволяет избежать случайного выбора при навигации стрелками
 
 	a.app.SetRoot(a.pages, true)
 	a.app.SetInputCapture(a.globalInput)
 	a.updateStatus()
 
-	// Начальный фокус на списке
-	a.focusOnTree = false
+	// Начальный фокус на списке закладок
+	a.focusOnFolders = false
 	a.app.SetFocus(a.list)
 	return a.app.Run()
 }
 
 func (a *App) updateStatus() {
 	statusText := "[::b]Tab[::r] switch  [::b]/[::r] search  [::b]a[::r] add  [::b]e[::r] edit  [::b]d[::r] del  [::b]Enter[::r] open/select  [::b]q[::r] quit"
-	if a.focusOnTree {
-		statusText = "[::b]Tab[::r] switch  [::b]Enter/Space[::r] select folder  [::b]q[::r] quit"
+	if a.focusOnFolders {
+		statusText = "[::b]Tab[::r] switch  [::b]Enter[::r] select folder  [::b]q[::r] quit"
 	}
 	a.status.SetText(statusText)
 }
@@ -123,6 +122,8 @@ func (a *App) reloadBookmarks() error {
 	if err != nil {
 		return err
 	}
+	// Применить фильтр с учетом выбранной папки (если есть)
+	// Важно: сохраняем selectedFolder при перезагрузке
 	a.applyFilter(a.search.GetText())
 	return nil
 }
@@ -130,46 +131,50 @@ func (a *App) reloadBookmarks() error {
 func (a *App) applyFilter(text string) {
 	var err error
 	// Используем SearchInFolder для учета выбранной папки
+	// Важно: передаем a.selectedFolder, который может быть nil (все закладки) или указателем на ID папки
 	a.filtered, err = a.bookmarkSvc.SearchInFolder(text, a.selectedFolder)
 	if err != nil {
+		// В случае ошибки показываем пустой список
+		a.filtered = []models.Bookmark{}
+		a.fillList()
 		return
 	}
+	// Заполняем список отфильтрованными закладками
 	a.fillList()
 }
 
-// onFolderSelect обрабатывает выбор папки в дереве (вызывается при нажатии Enter/Space)
-func (a *App) onFolderSelect(node *tview.TreeNode) {
-	if node == nil {
-		return
-	}
-
-	ref := node.GetReference()
-	if ref == nil {
-		// Выбрана корневая папка "All Bookmarks" - показать все закладки
-		a.selectedFolder = nil
-		a.tree.SetTitle("Folders (All)")
+// onFolderSelect обрабатывает выбор папки в списке (вызывается при нажатии Enter)
+func (a *App) onFolderSelect(item folderItem) {
+	// Устанавливаем выбранную папку
+	// Важно: создаем новую переменную для ID, чтобы избежать проблем с указателями
+	var newSelectedFolder *int
+	if item.ID != nil {
+		folderID := *item.ID
+		newSelectedFolder = &folderID
 	} else {
-		// Выбрана конкретная папка
-		folderID, ok := ref.(int)
-		if !ok {
-			// Если не int, значит это не папка - пропускаем
-			return
-		}
-		// Устанавливаем выбранную папку
-		a.selectedFolder = &folderID
-		folderName := node.GetText()
-		a.tree.SetTitle(fmt.Sprintf("Folders (%s)", folderName))
+		newSelectedFolder = nil
+	}
+	a.selectedFolder = newSelectedFolder
+
+	// Обновить заголовок списка папок
+	if item.ID == nil {
+		a.folderList.SetTitle("Folders (All)")
+	} else {
+		a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
 	}
 
 	// Применить фильтр с учетом выбранной папки и текущего поискового запроса
+	// Важно: вызываем applyFilter ПОСЛЕ установки selectedFolder
 	searchText := a.search.GetText()
+
+	// Применяем фильтр - это обновит a.filtered и вызовет fillList()
 	a.applyFilter(searchText)
 
 	// Обновить статус бар
 	a.updateStatus()
 
-	// Оставить фокус на дереве, чтобы можно было выбрать другую папку
-	// Пользователь может переключиться на список через Tab
+	// НЕ вызываем app.Draw() здесь - это может вызвать зависание
+	// UI обновится автоматически при следующем цикле обработки событий
 }
 
 func (a *App) fillList() {
@@ -192,41 +197,72 @@ func (a *App) fillList() {
 	}
 }
 
-func (a *App) fillTree() error {
+// fillFolderList заполняет список папок с отступами для показа иерархии
+func (a *App) fillFolderList() error {
 	folders, err := a.folderSvc.ListAll()
 	if err != nil {
 		return err
 	}
 
-	nodes := make(map[int]*tview.TreeNode, len(folders))
-	for _, folder := range folders {
-		node := tview.NewTreeNode(folder.Name).
-			SetReference(folder.ID)
-		nodes[folder.ID] = node
+	// Создаем карту папок для быстрого доступа
+	folderMap := make(map[int]*models.Folder)
+	for i := range folders {
+		folderMap[folders[i].ID] = &folders[i]
 	}
 
-	// Создаем корневой узел "All Bookmarks"
-	rootNode := tview.NewTreeNode("All Bookmarks")
-	rootNode.SetReference(nil) // nil означает "все закладки"
+	a.folderList.Clear()
+	a.folderItems = []folderItem{}
 
-	for _, folder := range folders {
-		n := nodes[folder.ID]
-		if folder.ParentID == nil || *folder.ParentID == 0 {
-			rootNode.AddChild(n)
-		} else {
-			if p, ok := nodes[*folder.ParentID]; ok {
-				p.AddChild(n)
+	// Добавляем корневой элемент "All Bookmarks"
+	allItem := folderItem{ID: nil, Name: "All Bookmarks", Level: 0}
+	a.folderItems = append(a.folderItems, allItem)
+	a.folderList.AddItem(allItem.Name, "", 0, nil)
+
+	// Рекурсивная функция для добавления папок с правильной иерархией
+	var buildList func(parentID *int, level int)
+	buildList = func(parentID *int, level int) {
+		for _, folder := range folders {
+			// Проверяем, является ли эта папка дочерней для текущего родителя
+			var isChild bool
+			if parentID == nil {
+				// Ищем папки без родителя или с parentID = 0
+				isChild = folder.ParentID == nil || *folder.ParentID == 0
 			} else {
-				// Если родитель не найден, добавляем в корень
-				rootNode.AddChild(n)
+				// Ищем папки с указанным родителем
+				isChild = folder.ParentID != nil && *folder.ParentID == *parentID
+			}
+
+			if isChild {
+				// Создаем отступ в зависимости от уровня
+				indent := ""
+				for i := 0; i < level; i++ {
+					indent += "  " // 2 пробела на уровень
+				}
+				if level > 0 {
+					indent += "└─ " // символ для показа вложенности
+				}
+
+				// Важно: создаем копию ID, чтобы избежать проблем с указателями
+				folderID := folder.ID
+				item := folderItem{
+					ID:    &folderID,
+					Name:  folder.Name,
+					Level: level,
+				}
+				a.folderItems = append(a.folderItems, item)
+				a.folderList.AddItem(indent+folder.Name, "", 0, nil)
+
+				// Рекурсивно добавляем дочерние папки
+				childParentID := &folder.ID
+				buildList(childParentID, level+1)
 			}
 		}
 	}
 
-	a.tree.SetRoot(rootNode)
+	// Начинаем с корневого уровня (parentID = nil)
+	buildList(nil, 1)
 
-	a.tree.GetRoot().SetExpanded(true)
-	a.tree.SetTitle("Folders (All)")
+	a.folderList.SetTitle("Folders (All)")
 	return nil
 }
 
@@ -254,42 +290,43 @@ func (a *App) setMode(m uint8) {
 	case ModeSearch:
 		a.app.SetFocus(a.search)
 	case ModeNormal:
-		if a.focusOnTree {
-			a.app.SetFocus(a.tree)
+		if a.focusOnFolders {
+			a.app.SetFocus(a.folderList)
 		} else {
 			a.app.SetFocus(a.list)
 		}
 	}
 }
 
-// toggleFocus переключает фокус между деревом и списком
+// toggleFocus переключает фокус между списком папок и списком закладок
 func (a *App) toggleFocus() {
-	a.focusOnTree = !a.focusOnTree
-	if a.focusOnTree {
-		a.app.SetFocus(a.tree)
+	a.focusOnFolders = !a.focusOnFolders
+	if a.focusOnFolders {
+		a.app.SetFocus(a.folderList)
 		// Обновим заголовок с информацией о выбранной папке
 		if a.selectedFolder != nil {
-			node := a.tree.GetCurrentNode()
-			if node != nil {
-				folderName := node.GetText()
-				a.tree.SetTitle(fmt.Sprintf("Folders (%s) - Enter/Space to select", folderName))
-			} else {
-				a.tree.SetTitle("Folders - Enter/Space to select")
+			// Найти имя выбранной папки
+			for _, item := range a.folderItems {
+				if item.ID != nil && *item.ID == *a.selectedFolder {
+					a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
+					break
+				}
 			}
 		} else {
-			a.tree.SetTitle("Folders (All) - Enter/Space to select")
+			a.folderList.SetTitle("Folders (All)")
 		}
 	} else {
 		a.app.SetFocus(a.list)
 		if a.selectedFolder != nil {
-			// Обновим заголовок дерева
-			node := a.tree.GetCurrentNode()
-			if node != nil {
-				folderName := node.GetText()
-				a.tree.SetTitle(fmt.Sprintf("Folders (%s)", folderName))
+			// Обновим заголовок списка папок
+			for _, item := range a.folderItems {
+				if item.ID != nil && *item.ID == *a.selectedFolder {
+					a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
+					break
+				}
 			}
 		} else {
-			a.tree.SetTitle("Folders (All)")
+			a.folderList.SetTitle("Folders (All)")
 		}
 	}
 	// Обновить статус бар
@@ -327,16 +364,19 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 			return nil
 		}
 
-		// Если фокус на дереве, обрабатываем горячие клавиши
-		if a.focusOnTree {
+		// Если фокус на списке папок, обрабатываем горячие клавиши
+		if a.focusOnFolders {
 			switch event.Key() {
 			case tcell.KeyEnter:
-				// Enter - выбрать папку и применить фильтр
-				node := a.tree.GetCurrentNode()
-				if node != nil {
-					a.onFolderSelect(node)
-					// Обновить UI после выбора
-					a.app.Draw()
+				// Enter - выбрать папку
+				// Получаем текущий индекс из списка папок
+				currentIndex := a.folderList.GetCurrentItem()
+				if currentIndex >= 0 && currentIndex < len(a.folderItems) {
+					item := a.folderItems[currentIndex]
+					// Вызываем обработчик выбора папки
+					a.onFolderSelect(item)
+					// Возвращаем nil, чтобы событие не передавалось дальше
+					return nil
 				}
 				return nil
 			case tcell.KeyRune:
@@ -349,16 +389,9 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 					// Поиск
 					a.setMode(ModeSearch)
 					return nil
-				case ' ': // Space - альтернативный способ выбора папки
-					node := a.tree.GetCurrentNode()
-					if node != nil {
-						a.onFolderSelect(node)
-						a.app.Draw()
-					}
-					return nil
 				}
 			}
-			// Остальные события передаем дереву для навигации
+			// Остальные события передаем списку для навигации
 			return event
 		}
 

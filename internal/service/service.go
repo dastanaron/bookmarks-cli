@@ -53,13 +53,18 @@ func (s *BookmarkService) GetByFolderID(folderID *int) ([]models.Bookmark, error
 	}
 
 	if folderID == nil {
+		// Если folderID == nil, возвращаем все закладки
 		return all, nil
 	}
 
+	// Фильтруем закладки по folderID
 	var filtered []models.Bookmark
-	for _, b := range all {
-		if b.FolderID != nil && *b.FolderID == *folderID {
-			filtered = append(filtered, b)
+	targetID := *folderID
+	for i := range all {
+		b := &all[i]
+		// Проверяем, что у закладки есть FolderID и он совпадает с искомым
+		if b.FolderID != nil && *b.FolderID == targetID {
+			filtered = append(filtered, *b)
 		}
 	}
 	return filtered, nil

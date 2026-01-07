@@ -18,17 +18,20 @@
 
 | Key | Action |
 |-----|--------|
+| `Tab` | switch focus between folders tree and bookmarks list |
 | `/` | start incremental search (focus jumps to top bar) |
-| `Enter` | open highlighted URL with system `xdg-open` (Win/Mac/Linux) |
+| `Enter` | open highlighted URL / select folder in tree |
 | `a` | add new bookmark |
 | `e` | edit current bookmark (including parent folder ID) |
 | `d` | delete current bookmark |
 | `Esc` | cancel search / close form |
+| `q` | quit application |
 
+- **Folder filtering** - click on folders to filter bookmarks by folder
 - Search filters **live** while you type (title, URL, description)  
-- Two-pane view: left side – compact list, right side – full details  
+- Three-pane view: folders tree (left), bookmarks list (center), details (right)  
 - Status bar at the bottom always shows available hot-keys  
-- Stores folder structure (parent ID) – useful for future tree view expansion
+- Stores folder structure (parent ID) with hierarchical tree view
 
 ---
 
@@ -40,17 +43,39 @@ cd bookmarkcli
 go mod tidy
 
 # 1) import bookmarks once
-go run . --import ~/bookmarks.html
+go run ./cmd/bookmarks-cli --import ~/bookmarks.html
 
 # 2) run the TUI
-go run .
+go run ./cmd/bookmarks-cli
 ```
-Binary will appear in the build folder:
+
+Build binary:
 ```bash
-Copy
-go build -o build/bookmarkcli
-./bookmarkcli
+go build -o build/bookmarks-cli ./cmd/bookmarks-cli
+./build/bookmarks-cli
 ```
+
+### Configuration
+
+By default, the database is stored at `~/.bookmarks/bookmarks.db`. You can specify a custom path:
+
+```bash
+go run ./cmd/bookmarks-cli --db /path/to/custom.db
+```
+
+## Architecture
+
+The project follows Clean Architecture principles with clear separation of concerns:
+
+- **Models** - Domain entities (Bookmark, Folder)
+- **Repository** - Data access layer with interfaces (easy to swap databases)
+- **Service** - Business logic layer
+- **UI** - Terminal user interface (TUI)
+- **Parser** - HTML bookmark parser
+- **Commands** - CLI command handlers
+- **Config** - Configuration management
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation.
 
 ## Tech stack
 

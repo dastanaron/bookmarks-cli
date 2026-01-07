@@ -1,164 +1,164 @@
-# Архитектура проекта Bookmarks CLI
+# Bookmarks CLI Architecture
 
-## Обзор
+## Overview
 
-Проект реорганизован с применением принципов чистой архитектуры (Clean Architecture) и разделения ответственности (Separation of Concerns). Это делает код более поддерживаемым, тестируемым и расширяемым.
+The project has been reorganized using Clean Architecture principles and Separation of Concerns. This makes the code more maintainable, testable, and extensible.
 
-## Структура проекта
+## Project Structure
 
 ```
 bookmarks-cli/
 ├── cmd/
-│   └── bookmarks-cli/      # Точка входа приложения
+│   └── bookmarks-cli/      # Application entry point
 │       └── main.go
-├── internal/               # Внутренние пакеты (не экспортируются)
-│   ├── models/            # Доменные модели
+├── internal/               # Internal packages (not exported)
+│   ├── models/            # Domain models
 │   │   └── bookmark.go
-│   ├── repository/        # Слой доступа к данным
-│   │   ├── repository.go  # Интерфейсы
-│   │   └── sqlite.go      # SQLite реализация
-│   ├── service/           # Бизнес-логика
+│   ├── repository/        # Data access layer
+│   │   ├── repository.go  # Interfaces
+│   │   └── sqlite.go      # SQLite implementation
+│   ├── service/           # Business logic
 │   │   └── service.go
-│   ├── ui/                # Пользовательский интерфейс (TUI)
+│   ├── ui/                # User interface (TUI)
 │   │   └── app.go
-│   ├── parser/            # Парсер HTML закладок
+│   ├── parser/            # HTML bookmark parser
 │   │   └── parser.go
-│   ├── commands/          # CLI команды
+│   ├── commands/          # CLI commands
 │   │   └── import.go
-│   └── config/            # Конфигурация
+│   └── config/            # Configuration
 │       └── config.go
 ├── go.mod
 └── README.md
 ```
 
-## Слои архитектуры
+## Architecture Layers
 
-### 1. Models (Доменные модели)
-**Пакет:** `internal/models`
+### 1. Models (Domain Models)
+**Package:** `internal/models`
 
-Содержит базовые структуры данных:
-- `Bookmark` - структура закладки
-- `Folder` - структура папки
+Contains basic data structures:
+- `Bookmark` - bookmark structure
+- `Folder` - folder structure
 
-**Принципы:**
-- Только данные, без логики
-- Независимы от других слоев
-- Могут использоваться во всех слоях
+**Principles:**
+- Data only, no logic
+- Independent from other layers
+- Can be used in all layers
 
-### 2. Repository (Слой доступа к данным)
-**Пакет:** `internal/repository`
+### 2. Repository (Data Access Layer)
+**Package:** `internal/repository`
 
-**Интерфейсы:**
-- `BookmarkRepository` - операции с закладками
-- `FolderRepository` - операции с папками
-- `Repository` - объединяет все репозитории
+**Interfaces:**
+- `BookmarkRepository` - bookmark operations
+- `FolderRepository` - folder operations
+- `Repository` - combines all repositories
 
-**Реализация:**
-- `SQLiteRepository` - SQLite реализация
+**Implementation:**
+- `SQLiteRepository` - SQLite implementation
 
-**Преимущества:**
-- Абстракция от конкретной БД
-- Легко заменить на другую БД (PostgreSQL, MySQL и т.д.)
-- Упрощает тестирование (можно создать mock-реализацию)
+**Benefits:**
+- Abstraction from specific database
+- Easy to replace with another database (PostgreSQL, MySQL, etc.)
+- Simplifies testing (can create mock implementation)
 
-### 3. Service (Бизнес-логика)
-**Пакет:** `internal/service`
+### 3. Service (Business Logic)
+**Package:** `internal/service`
 
-**Сервисы:**
-- `BookmarkService` - бизнес-логика для закладок
-  - `ListAll()` - получить все закладки
-  - `Search(query)` - поиск закладок
-  - `Create/Update/Delete` - CRUD операции
-- `FolderService` - бизнес-логика для папок
+**Services:**
+- `BookmarkService` - business logic for bookmarks
+  - `ListAll()` - get all bookmarks
+  - `Search(query)` - search bookmarks
+  - `Create/Update/Delete` - CRUD operations
+- `FolderService` - business logic for folders
 
-**Принципы:**
-- Содержит бизнес-логику (поиск, фильтрация)
-- Не зависит от UI или БД напрямую
-- Работает через интерфейсы репозиториев
+**Principles:**
+- Contains business logic (search, filtering)
+- Does not depend on UI or database directly
+- Works through repository interfaces
 
-### 4. UI (Пользовательский интерфейс)
-**Пакет:** `internal/ui`
+### 4. UI (User Interface)
+**Package:** `internal/ui`
 
-**Компоненты:**
-- `App` - главное приложение TUI
-- Использует `tview` для отрисовки
-- Зависит только от сервисов, не от репозиториев
+**Components:**
+- `App` - main TUI application
+- Uses `tview` for rendering
+- Depends only on services, not repositories
 
-**Принципы:**
-- Только отображение и обработка ввода
-- Вся логика делегируется сервисам
-- Легко заменить на другой UI (веб, GUI)
+**Principles:**
+- Display and input handling only
+- All logic delegated to services
+- Easy to replace with another UI (web, GUI)
 
-### 5. Parser (Парсер)
-**Пакет:** `internal/parser`
+### 5. Parser
+**Package:** `internal/parser`
 
-**Функциональность:**
-- Парсинг HTML файлов закладок
-- Использует сервисы для создания папок и закладок
+**Functionality:**
+- Parsing HTML bookmark files
+- Uses services to create folders and bookmarks
 
-### 6. Commands (CLI команды)
-**Пакет:** `internal/commands`
+### 6. Commands (CLI Commands)
+**Package:** `internal/commands`
 
-**Команды:**
-- `ImportCommand` - импорт закладок из HTML
+**Commands:**
+- `ImportCommand` - import bookmarks from HTML
 
-**Принципы:**
-- Каждая команда - отдельный тип
-- Легко добавлять новые команды
-- Изолированы от UI
+**Principles:**
+- Each command is a separate type
+- Easy to add new commands
+- Isolated from UI
 
-### 7. Config (Конфигурация)
-**Пакет:** `internal/config`
+### 7. Config (Configuration)
+**Package:** `internal/config`
 
-**Функциональность:**
-- Управление конфигурацией приложения
-- Путь к БД по умолчанию: `~/.bookmarks/bookmarks.db`
-- Возможность переопределения через флаги
+**Functionality:**
+- Application configuration management
+- Default database path: `~/.bookmarks/bookmarks.db`
+- Can be overridden via flags
 
-## Потоки данных
+## Data Flow
 
-### Импорт закладок
+### Import Bookmarks
 ```
 main.go → ImportCommand → Parser → FolderService → Repository → SQLite
                                     ↓
                               BookmarkService → Repository → SQLite
 ```
 
-### Запуск TUI
+### Run TUI
 ```
 main.go → UI.App → BookmarkService → Repository → SQLite
                 → FolderService → Repository → SQLite
 ```
 
-## Преимущества новой архитектуры
+## Benefits of the New Architecture
 
-### 1. Разделение ответственности
-- Каждый пакет имеет четкую ответственность
-- Легко понять, где что находится
+### 1. Separation of Concerns
+- Each package has a clear responsibility
+- Easy to understand where everything is located
 
-### 2. Тестируемость
-- Можно легко создать mock-репозитории для тестов
-- Сервисы тестируются независимо от БД
-- UI можно тестировать с mock-сервисами
+### 2. Testability
+- Can easily create mock repositories for tests
+- Services are tested independently from database
+- UI can be tested with mock services
 
-### 3. Расширяемость
-- Легко добавить новую команду (создать файл в `commands/`)
-- Легко заменить БД (создать новую реализацию `Repository`)
-- Легко добавить новый UI (веб-интерфейс, GUI)
+### 3. Extensibility
+- Easy to add a new command (create a file in `commands/`)
+- Easy to replace database (create a new `Repository` implementation)
+- Easy to add a new UI (web interface, GUI)
 
-### 4. Поддерживаемость
-- Изменения в одном слое не влияют на другие
-- Легко найти и исправить баги
-- Код более читаемый и понятный
+### 4. Maintainability
+- Changes in one layer do not affect others
+- Easy to find and fix bugs
+- Code is more readable and understandable
 
 ### 5. Dependency Injection
-- Зависимости передаются через конструкторы
-- Нет глобальных переменных
-- Легко управлять зависимостями
+- Dependencies are passed through constructors
+- No global variables
+- Easy to manage dependencies
 
-## Примеры использования
+## Usage Examples
 
-### Добавление новой команды
+### Adding a New Command
 
 ```go
 // internal/commands/export.go
@@ -167,11 +167,11 @@ type ExportCommand struct {
 }
 
 func (c *ExportCommand) Execute(outputPath string) error {
-    // Логика экспорта
+    // Export logic
 }
 ```
 
-### Добавление нового репозитория
+### Adding a New Repository
 
 ```go
 // internal/repository/postgres.go
@@ -180,11 +180,11 @@ type PostgresRepository struct {
 }
 
 func NewPostgresRepository(connStr string) (*PostgresRepository, error) {
-    // Реализация
+    // Implementation
 }
 ```
 
-### Создание mock для тестов
+### Creating a Mock for Tests
 
 ```go
 // internal/repository/mock.go
@@ -197,29 +197,29 @@ func (m *MockRepository) Bookmarks() BookmarkRepository {
 }
 ```
 
-## Миграция со старой архитектуры
+## Migration from Old Architecture
 
-Старые файлы (`bookmark.go`, `db.go`, `ui.go`, `parser.go`, `main.go`) можно удалить после проверки работоспособности новой архитектуры.
+Old files (`bookmark.go`, `db.go`, `ui.go`, `parser.go`, `main.go`) can be deleted after verifying the new architecture works correctly.
 
-## Рекомендации по дальнейшему развитию
+## Recommendations for Further Development
 
-1. **Добавить тесты:**
-   - Unit тесты для сервисов
-   - Integration тесты для репозиториев
-   - E2E тесты для UI
+1. **Add tests:**
+   - Unit tests for services
+   - Integration tests for repositories
+   - E2E tests for UI
 
-2. **Добавить валидацию:**
-   - Валидация URL в `BookmarkService`
-   - Валидация данных в формах
+2. **Add validation:**
+   - URL validation in `BookmarkService`
+   - Form data validation
 
-3. **Улучшить обработку ошибок:**
-   - Кастомные типы ошибок
-   - Логирование ошибок
+3. **Improve error handling:**
+   - Custom error types
+   - Error logging
 
-4. **Добавить конфигурационный файл:**
-   - YAML/TOML конфиг
-   - Настройки темы, горячих клавиш
+4. **Add configuration file:**
+   - YAML/TOML config
+   - Theme settings, hotkey configuration
 
-5. **Добавить плагины:**
-   - Экспорт в различные форматы
-   - Синхронизация с облачными сервисами
+5. **Add plugins:**
+   - Export to various formats
+   - Cloud service synchronization

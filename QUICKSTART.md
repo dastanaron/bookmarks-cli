@@ -1,102 +1,102 @@
-# Быстрый старт
+# Quick Start
 
-## Способы запуска
+## Ways to Run
 
-### 1. Запуск через `go run` (для разработки)
+### 1. Run via `go run` (for development)
 
-**Импорт закладок:**
+**Import bookmarks:**
 ```bash
 go run ./cmd/bookmarks-cli --import ~/bookmarks.html
 ```
 
-**Запуск TUI приложения:**
+**Run TUI application:**
 ```bash
 go run ./cmd/bookmarks-cli
 ```
 
-**С указанием пути к БД:**
+**With custom database path:**
 ```bash
 go run ./cmd/bookmarks-cli --db /path/to/custom.db
 ```
 
-### 2. Сборка и запуск бинарника
+### 2. Build and Run Binary
 
-**Сборка:**
+**Build:**
 ```bash
 go build -o build/bookmarks-cli ./cmd/bookmarks-cli
 ```
 
-**Или с более коротким именем:**
+**Or with a shorter name:**
 ```bash
 go build -o build/bm ./cmd/bookmarks-cli
 ```
 
-**Запуск:**
+**Run:**
 ```bash
 ./build/bookmarks-cli
-# или
+# or
 ./build/bm
 ```
 
-**Импорт:**
+**Import:**
 ```bash
 ./build/bookmarks-cli --import ~/bookmarks.html
 ```
 
-### 3. Установка в систему (опционально)
+### 3. Install to System (optional)
 
 ```bash
-# Собрать и установить в $GOPATH/bin или ~/go/bin
+# Build and install to $GOPATH/bin or ~/go/bin
 go install ./cmd/bookmarks-cli
 
-# Затем можно запускать просто:
+# Then you can run simply:
 bookmarks-cli
 ```
 
-## Флаги командной строки
+## Command Line Flags
 
-- `--import <путь>` - импортировать закладки из HTML файла
-- `--db <путь>` - указать путь к файлу базы данных (по умолчанию: `~/.bookmarks/bookmarks.db`)
+- `--import <path>` - import bookmarks from HTML file
+- `--db <path>` - specify database file path (default: `~/.bookmarks/bookmarks.db`)
 
-## Примеры использования
+## Usage Examples
 
-### Полный цикл работы
+### Complete Workflow
 
 ```bash
-# 1. Импорт закладок из браузера
+# 1. Import bookmarks from browser
 go run ./cmd/bookmarks-cli --import ~/Downloads/bookmarks.html
 
-# 2. Запуск приложения для просмотра и управления
+# 2. Run application for viewing and management
 go run ./cmd/bookmarks-cli
 
-# 3. Использование другой базы данных
+# 3. Use a different database
 go run ./cmd/bookmarks-cli --db ./my-bookmarks.db
 ```
 
-### Горячие клавиши в TUI
+### TUI Hotkeys
 
-**Навигация:**
-- `Tab` - переключение между панелью папок (слева) и списком закладок (в центре)
-- `↑/↓` - навигация по списку/дереву
-- `Enter` - открыть выбранную закладку в браузере / выбрать папку в дереве
+**Navigation:**
+- `Tab` - switch between folders panel (left) and bookmarks list (center)
+- `↑/↓` - navigate through list/tree
+- `Enter` - open selected bookmark in browser / select folder in tree
 
-**Поиск и фильтрация:**
-- `/` - начать поиск по закладкам
-- Выбор папки в дереве - показать только закладки из этой папки
-- Выбор "All Bookmarks" в корне дерева - показать все закладки
+**Search and Filtering:**
+- `/` - start search through bookmarks
+- Select folder in tree - show only bookmarks from this folder
+- Select "All Bookmarks" at tree root - show all bookmarks
 
-**Управление:**
-- `a` - добавить новую закладку
-- `e` - редактировать текущую закладку
-- `d` - удалить текущую закладку
-- `q` - выйти из приложения
-- `Esc` - отменить поиск / закрыть форму
+**Management:**
+- `a` - add new bookmark
+- `e` - edit current bookmark
+- `d` - delete current bookmark
+- `q` - quit application
+- `Esc` - cancel search / close form
 
-## Расположение базы данных
+## Database Location
 
-По умолчанию база данных создается в:
+By default, the database is created at:
 ```
 ~/.bookmarks/bookmarks.db
 ```
 
-Директория создается автоматически при первом запуске.
+The directory is created automatically on first run.

@@ -144,6 +144,24 @@ func (r *bookmarkRepo) GetByID(id int) (*models.Bookmark, error) {
 	return &b, nil
 }
 
+func (r *bookmarkRepo) GetByURL(url string) (*models.Bookmark, error) {
+	var b models.Bookmark
+	err := r.db.QueryRow(`
+		SELECT b.id, b.title, b.url, b.description, b.icon, b.folder_id, f.name 
+		FROM bookmarks AS b
+		LEFT JOIN folders AS f ON f.id = b.folder_id 
+		WHERE b.url = ?
+	`, url).Scan(&b.ID, &b.Title, &b.URL, &b.Description, &b.Icon, &b.FolderID, &b.FolderName)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 func (r *bookmarkRepo) Create(b *models.Bookmark) error {
 	res, err := r.db.Exec(
 		`INSERT INTO bookmarks(title, url, description, icon, folder_id) VALUES (?, ?, ?, ?, ?)`,

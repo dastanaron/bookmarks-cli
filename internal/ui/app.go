@@ -108,9 +108,21 @@ func (a *App) Run() error {
 }
 
 func (a *App) updateStatus() {
-	statusText := "[::b]Tab[::r] switch  [::b]/[::r] search  [::b]a[::r] add  [::b]e[::r] edit  [::b]d[::r] del  [::b]Enter[::r] open/select  [::b]q[::r] quit"
+	// Get total count of bookmarks
+	totalCount := len(a.all)
+	filteredCount := len(a.filtered)
+
+	// Build status text with counts
+	var countText string
+	if filteredCount != totalCount {
+		countText = fmt.Sprintf(" [::b]%d/%d[::r] bookmarks", filteredCount, totalCount)
+	} else {
+		countText = fmt.Sprintf(" [::b]%d[::r] bookmarks", totalCount)
+	}
+
+	statusText := "[::b]Tab[::r] switch  [::b]/[::r] search  [::b]a[::r] add  [::b]e[::r] edit  [::b]d[::r] del  [::b]Enter[::r] open/select  [::b]q[::r] quit" + countText
 	if a.focusOnFolders {
-		statusText = "[::b]Tab[::r] switch  [::b]Enter[::r] select  [::b]a[::r] add folder  [::b]e[::r] edit folder  [::b]d[::r] del folder  [::b]q[::r] quit"
+		statusText = "[::b]Tab[::r] switch  [::b]Enter[::r] select  [::b]a[::r] add folder  [::b]e[::r] edit folder  [::b]d[::r] del folder  [::b]q[::r] quit" + countText
 	}
 	a.status.SetText(statusText)
 }

@@ -11,9 +11,9 @@ import (
 
 // ImportCommand handles bookmark import from HTML file
 type ImportCommand struct {
-	repo          repository.Repository
-	bookmarkSvc   *service.BookmarkService
-	parser        *parser.Parser
+	repo        repository.Repository
+	bookmarkSvc *service.BookmarkService
+	parser      *parser.Parser
 }
 
 // NewImportCommand creates a new import command
@@ -41,14 +41,33 @@ func (c *ImportCommand) Execute(filePath string) error {
 	}
 
 	imported := 0
+	updated := 0
 	for _, b := range bookmarks {
-		if err := c.bookmarkSvc.Create(&b); err != nil {
-			fmt.Printf("Warning: failed to import bookmark '%s': %v\n", b.Title, err)
+		// Check if bookmark with this URL already exists
+		existing, err := c.bookmarkSvc.GetByURL(b.URL)
+		if err != nil {
+			fmt.Printf("Warning: failed to check bookmark '%s': %v\n", b.Title, err)
 			continue
 		}
-		imported++
+
+		if existing != nil {
+			// Update existing bookmark
+			b.ID = existing.ID
+			if err := c.bookmarkSvc.Update(&b); err != nil {
+				fmt.Printf("Warning: failed to update bookmark '%s': %v\n", b.Title, err)
+				continue
+			}
+			updated++
+		} else {
+			// Create new bookmark
+			if err := c.bookmarkSvc.Create(&b); err != nil {
+				fmt.Printf("Warning: failed to import bookmark '%s': %v\n", b.Title, err)
+				continue
+			}
+			imported++
+		}
 	}
 
-	fmt.Printf("Imported %d bookmarks.\n", imported)
+	fmt.Printf("Imported %d new bookmarks, updated %d existing bookmarks.\n", imported, updated)
 	return nil
 }

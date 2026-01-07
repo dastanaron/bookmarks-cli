@@ -105,6 +105,11 @@ func (s *BookmarkService) GetByID(id int) (*models.Bookmark, error) {
 	return s.repo.Bookmarks().GetByID(id)
 }
 
+// GetByURL returns a bookmark by URL
+func (s *BookmarkService) GetByURL(url string) (*models.Bookmark, error) {
+	return s.repo.Bookmarks().GetByURL(url)
+}
+
 // Create creates a new bookmark
 func (s *BookmarkService) Create(b *models.Bookmark) error {
 	return s.repo.Bookmarks().Create(b)

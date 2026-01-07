@@ -16,6 +16,7 @@ import (
 func main() {
 	importPath := flag.String("import", "", "Path to HTML bookmarks file to import")
 	exportPath := flag.String("export", "", "Path to HTML bookmarks file to export")
+	clearDoubles := flag.Bool("clear-doubles", false, "Remove duplicate bookmarks (same URL)")
 	dbPath := flag.String("db", "", "Path to database file (default: ~/.bookmarks/bookmarks.db)")
 	flag.Parse()
 
@@ -50,6 +51,15 @@ func main() {
 		exportCmd := commands.NewExportCommand(repo)
 		if err := exportCmd.Execute(*exportPath); err != nil {
 			log.Fatalf("Export failed: %v", err)
+		}
+		return
+	}
+
+	// Handle clear doubles command
+	if *clearDoubles {
+		clearCmd := commands.NewClearDoublesCommand(repo)
+		if err := clearCmd.Execute(); err != nil {
+			log.Fatalf("Clear doubles failed: %v", err)
 		}
 		return
 	}

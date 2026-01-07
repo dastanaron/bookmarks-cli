@@ -6,6 +6,7 @@ import "github.com/dastanaron/bookmarks/internal/models"
 type BookmarkRepository interface {
 	List() ([]models.Bookmark, error)
 	GetByID(id int) (*models.Bookmark, error)
+	GetByURL(url string) (*models.Bookmark, error)
 	Create(b *models.Bookmark) error
 	Update(b *models.Bookmark) error
 	Delete(id int) error

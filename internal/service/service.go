@@ -120,6 +120,12 @@ func (s *BookmarkService) Update(b *models.Bookmark) error {
 	return s.repo.Bookmarks().Update(b)
 }
 
+// Upsert creates a new bookmark if URL doesn't exist, otherwise updates the existing one.
+// Returns true if created, false if updated.
+func (s *BookmarkService) Upsert(b *models.Bookmark) (bool, error) {
+	return s.repo.Bookmarks().Upsert(b)
+}
+
 // Delete deletes a bookmark by ID
 func (s *BookmarkService) Delete(id int) error {
 	return s.repo.Bookmarks().Delete(id)

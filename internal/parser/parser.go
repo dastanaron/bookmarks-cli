@@ -49,15 +49,17 @@ func (p *Parser) ParseBookmarksHTML(r io.Reader) ([]models.Bookmark, error) {
 				if bookmark := p.processBookmarkNode(n, folderStack); bookmark != nil {
 					bookmarks = append(bookmarks, *bookmark)
 				}
-			case "dl":
-				// Closing folder container: </DL>
-				p.processFolderClose(&folderStack)
 			}
 		}
 
 		// Recursively traverse all children
 		for child := n.FirstChild; child != nil; child = child.NextSibling {
 			walk(child)
+		}
+
+		// After processing children, close folder if this was a DL container
+		if n.Type == html.ElementNode && n.Data == "dl" {
+			p.processFolderClose(&folderStack)
 		}
 	}
 

@@ -9,6 +9,9 @@ type BookmarkRepository interface {
 	GetByURL(url string) (*models.Bookmark, error)
 	Create(b *models.Bookmark) error
 	Update(b *models.Bookmark) error
+	// Upsert creates a new bookmark if URL doesn't exist, otherwise updates the existing one.
+	// Returns true if created, false if updated.
+	Upsert(b *models.Bookmark) (bool, error)
 	Delete(id int) error
 }
 

@@ -43,28 +43,15 @@ func (c *ImportCommand) Execute(filePath string) error {
 	imported := 0
 	updated := 0
 	for _, b := range bookmarks {
-		// Check if bookmark with this URL already exists
-		existing, err := c.bookmarkSvc.GetByURL(b.URL)
+		created, err := c.bookmarkSvc.Upsert(&b)
 		if err != nil {
-			fmt.Printf("Warning: failed to check bookmark '%s': %v\n", b.Title, err)
+			fmt.Printf("Warning: failed to upsert bookmark '%s': %v\n", b.Title, err)
 			continue
 		}
-
-		if existing != nil {
-			// Update existing bookmark
-			b.ID = existing.ID
-			if err := c.bookmarkSvc.Update(&b); err != nil {
-				fmt.Printf("Warning: failed to update bookmark '%s': %v\n", b.Title, err)
-				continue
-			}
-			updated++
-		} else {
-			// Create new bookmark
-			if err := c.bookmarkSvc.Create(&b); err != nil {
-				fmt.Printf("Warning: failed to import bookmark '%s': %v\n", b.Title, err)
-				continue
-			}
+		if created {
 			imported++
+		} else {
+			updated++
 		}
 	}
 

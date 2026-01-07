@@ -186,6 +186,20 @@ func (r *bookmarkRepo) Update(b *models.Bookmark) error {
 	return err
 }
 
+func (r *bookmarkRepo) Upsert(b *models.Bookmark) (bool, error) {
+	var id int
+	err := r.db.QueryRow(`SELECT id FROM bookmarks WHERE url = ?`, b.URL).Scan(&id)
+	switch err {
+	case nil:
+		b.ID = id
+		return false, r.Update(b)
+	case sql.ErrNoRows:
+		return true, r.Create(b)
+	default:
+		return false, err
+	}
+}
+
 func (r *bookmarkRepo) Delete(id int) error {
 	_, err := r.db.Exec(`DELETE FROM bookmarks WHERE id = ?`, id)
 	return err
@@ -253,10 +267,20 @@ func (r *folderRepo) Delete(id int) error {
 
 func (r *folderRepo) Upsert(name string, parentID *int) (*models.Folder, error) {
 	var id int
-	err := r.db.QueryRow(
-		`SELECT id FROM folders WHERE name = ? AND (parent_id IS ? OR parent_id = ?)`,
-		name, parentID, parentID,
-	).Scan(&id)
+	var err error
+
+	// SQL для проверки NULL требует разных запросов
+	if parentID == nil {
+		err = r.db.QueryRow(
+			`SELECT id FROM folders WHERE name = ? AND parent_id IS NULL`,
+			name,
+		).Scan(&id)
+	} else {
+		err = r.db.QueryRow(
+			`SELECT id FROM folders WHERE name = ? AND parent_id = ?`,
+			name, *parentID,
+		).Scan(&id)
+	}
 
 	if err == nil {
 		return &models.Folder{ID: id, Name: name, ParentID: parentID}, nil

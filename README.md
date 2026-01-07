@@ -89,13 +89,13 @@ Pure Go, no runtime dependencies except xdg-open (or OS equivalent)
 
 ## TODO / Contributions welcome
 
-[ ] tree view
+[x] tree view
 
-[ ] add/edit/delete folders
+[x] add/edit/delete folders
 
-[ ] fuzzy search + highlight matches
+[x] fuzzy search
 
-[ ] export back to HTML
+[x] export back to HTML
 
 Feel free to open issues & PRs!
 

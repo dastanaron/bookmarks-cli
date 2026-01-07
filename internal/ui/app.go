@@ -110,7 +110,7 @@ func (a *App) Run() error {
 func (a *App) updateStatus() {
 	statusText := "[::b]Tab[::r] switch  [::b]/[::r] search  [::b]a[::r] add  [::b]e[::r] edit  [::b]d[::r] del  [::b]Enter[::r] open/select  [::b]q[::r] quit"
 	if a.focusOnFolders {
-		statusText = "[::b]Tab[::r] switch  [::b]Enter[::r] select folder  [::b]q[::r] quit"
+		statusText = "[::b]Tab[::r] switch  [::b]Enter[::r] select  [::b]a[::r] add folder  [::b]e[::r] edit folder  [::b]d[::r] del folder  [::b]q[::r] quit"
 	}
 	a.status.SetText(statusText)
 }
@@ -198,6 +198,14 @@ func (a *App) fillList() {
 		a.current = nil
 		a.showDetails()
 	}
+}
+
+// reloadFolders перезагружает список папок
+func (a *App) reloadFolders() error {
+	if err := a.fillFolderList(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // fillFolderList заполняет список папок с отступами для показа иерархии
@@ -392,6 +400,37 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 					// Поиск
 					a.setMode(ModeSearch)
 					return nil
+				case 'a':
+					// Добавить новую папку
+					a.showFolderForm(&models.Folder{}, false)
+					return nil
+				case 'e':
+					// Редактировать текущую папку
+					currentIndex := a.folderList.GetCurrentItem()
+					if currentIndex >= 0 && currentIndex < len(a.folderItems) {
+						item := a.folderItems[currentIndex]
+						if item.ID != nil {
+							// Получаем папку из базы
+							folder, err := a.folderSvc.GetByID(*item.ID)
+							if err == nil && folder != nil {
+								f := *folder
+								a.showFolderForm(&f, true)
+							}
+						}
+					}
+					return nil
+				case 'd':
+					// Удалить текущую папку
+					currentIndex := a.folderList.GetCurrentItem()
+					if currentIndex >= 0 && currentIndex < len(a.folderItems) {
+						item := a.folderItems[currentIndex]
+						if item.ID != nil {
+							if err := a.folderSvc.Delete(*item.ID); err == nil {
+								a.reloadFolders()
+							}
+						}
+					}
+					return nil
 				}
 			}
 			// Остальные события передаем списку для навигации
@@ -411,7 +450,15 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 				a.setMode(ModeSearch)
 				return nil
 			case 'a':
-				a.showForm(&models.Bookmark{}, false)
+				// Создаем новую закладку
+				newBookmark := models.Bookmark{}
+				// Если выбрана папка, устанавливаем её по умолчанию
+				// Важно: создаем копию указателя, чтобы избежать проблем
+				if a.selectedFolder != nil {
+					folderID := *a.selectedFolder
+					newBookmark.FolderID = &folderID
+				}
+				a.showForm(&newBookmark, false)
 				return nil
 			case 'e':
 				if a.current != nil {
@@ -422,7 +469,9 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 				return nil
 			case 'd':
 				if a.current != nil {
-					if err := a.bookmarkSvc.Delete(a.current.ID); err == nil {
+					if err := a.bookmarkSvc.Delete(a.current.ID); err != nil {
+						a.showError(fmt.Sprintf("Error deleting bookmark: %v", err))
+					} else {
 						a.reloadBookmarks()
 					}
 				}
@@ -435,7 +484,9 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 	case ModeForm:
 		switch event.Key() {
 		case tcell.KeyEscape:
+			// Закрываем любую открытую форму (закладки или папки)
 			a.pages.RemovePage("form")
+			a.pages.RemovePage("folderForm")
 			a.setMode(ModeNormal)
 		}
 	}
@@ -471,6 +522,12 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 
 	// Находим индекс текущей выбранной папки
 	selectedIndex := 0 // По умолчанию "None"
+	// Если это новая закладка и FolderID не установлен, но есть selectedFolder, используем его
+	if !edit && b.FolderID == nil && a.selectedFolder != nil {
+		// Создаем копию указателя
+		folderID := *a.selectedFolder
+		b.FolderID = &folderID
+	}
 	if b.FolderID != nil {
 		for i, folderID := range folderIDs {
 			if folderID != nil && *folderID == *b.FolderID {
@@ -496,15 +553,33 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 	})
 
 	form.AddButton("Save", func() {
+		// Валидация: URL обязателен
+		if b.URL == "" {
+			a.showError("Error: URL is required")
+			return // Не закрываем форму, чтобы пользователь мог исправить
+		}
+
+		// Валидация: Title желателен, но не обязателен
+		if b.Title == "" {
+			// Можно использовать URL как заголовок, но лучше предупредить
+			// Пока просто продолжаем
+		}
+
 		var err error
 		if edit {
 			err = a.bookmarkSvc.Update(b)
 		} else {
 			err = a.bookmarkSvc.Create(b)
 		}
-		if err == nil {
-			a.reloadBookmarks()
+
+		if err != nil {
+			// Показываем ошибку пользователю
+			a.showError(fmt.Sprintf("Error saving bookmark: %v", err))
+			return // Не закрываем форму при ошибке
 		}
+
+		// Успешно сохранено
+		a.reloadBookmarks()
 		a.pages.RemovePage("form")
 		a.setMode(ModeNormal)
 	})
@@ -517,6 +592,133 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 	a.pages.AddPage("form", form, true, true)
 	a.app.SetFocus(form)
 	a.mode = ModeForm
+}
+
+// showFolderForm показывает форму для создания/редактирования папки
+func (a *App) showFolderForm(f *models.Folder, edit bool) {
+	name := f.Name
+	var parentFolderID *int
+	if f.ParentID != nil {
+		parentFolderID = f.ParentID
+	}
+
+	// Получаем список всех папок для выпадающего списка родительской папки
+	folders, err := a.folderSvc.ListAll()
+	if err != nil {
+		folders = []models.Folder{}
+	}
+
+	// Создаем список опций для выпадающего списка
+	// Первая опция - "None" (корневая папка)
+	parentOptions := []string{"None (Root)"}
+	parentIDs := make([]*int, 1, len(folders)+1)
+	parentIDs[0] = nil // nil означает корневую папку
+
+	// Добавляем все папки (исключая текущую при редактировании)
+	folderIDValues := make([]int, 0, len(folders))
+	for i := range folders {
+		folder := &folders[i]
+		// При редактировании исключаем саму папку и её дочерние папки (чтобы избежать циклических ссылок)
+		if edit && f.ID != 0 && folder.ID == f.ID {
+			continue
+		}
+		// Также исключаем дочерние папки (упрощенная проверка)
+		if edit && f.ID != 0 && folder.ParentID != nil && *folder.ParentID == f.ID {
+			continue
+		}
+		parentOptions = append(parentOptions, folder.Name)
+		folderIDValues = append(folderIDValues, folder.ID)
+		parentIDs = append(parentIDs, &folderIDValues[len(folderIDValues)-1])
+	}
+
+	// Находим индекс текущей родительской папки
+	selectedParentIndex := 0 // По умолчанию "None (Root)"
+	if parentFolderID != nil {
+		for i, pid := range parentIDs {
+			if pid != nil && *pid == *parentFolderID {
+				selectedParentIndex = i
+				break
+			}
+		}
+	}
+
+	form := tview.NewForm()
+	form.AddInputField("Name", name, 60, nil, func(t string) { f.Name = t })
+
+	// Добавляем выпадающий список для выбора родительской папки
+	form.AddDropDown("Parent Folder", parentOptions, selectedParentIndex, func(option string, index int) {
+		// Устанавливаем ParentID в зависимости от выбранной опции
+		if index >= 0 && index < len(parentIDs) {
+			f.ParentID = parentIDs[index]
+		} else {
+			f.ParentID = nil
+		}
+	})
+
+	form.AddButton("Save", func() {
+		// Валидация: название папки обязательно
+		if f.Name == "" {
+			a.showError("Error: Folder name is required")
+			return // Не закрываем форму
+		}
+
+		var err error
+		if edit {
+			err = a.folderSvc.Update(f)
+		} else {
+			_, err = a.folderSvc.Create(f.Name, f.ParentID)
+		}
+
+		if err != nil {
+			// Показываем ошибку пользователю
+			a.showError(fmt.Sprintf("Error saving folder: %v", err))
+			return // Не закрываем форму при ошибке
+		}
+
+		// Успешно сохранено
+		// Перезагружаем список папок и закладок
+		a.reloadFolders()
+		a.reloadBookmarks()
+		a.pages.RemovePage("folderForm")
+		a.setMode(ModeNormal)
+	})
+	form.AddButton("Cancel", func() {
+		a.pages.RemovePage("folderForm")
+		a.setMode(ModeNormal)
+	})
+
+	formTitle := "New Folder"
+	if edit {
+		formTitle = "Edit Folder"
+	}
+	form.SetBorder(true).SetTitle(formTitle)
+	a.pages.AddPage("folderForm", form, true, true)
+	a.app.SetFocus(form)
+	a.mode = ModeForm
+}
+
+// showError показывает модальное окно с ошибкой
+func (a *App) showError(message string) {
+	modal := tview.NewModal().
+		SetText(message).
+		AddButtons([]string{"OK"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			a.pages.RemovePage("error")
+			// Возвращаем фокус на форму
+			if a.mode == ModeForm {
+				// Просто возвращаем фокус на форму через поиск активной страницы
+				// tview автоматически установит фокус на активный элемент
+				if a.pages.HasPage("form") {
+					// Форма закладки - фокус вернется автоматически
+				} else if a.pages.HasPage("folderForm") {
+					// Форма папки - фокус вернется автоматически
+				}
+			}
+		})
+
+	modal.SetBorder(true).SetTitle("Error")
+	a.pages.AddPage("error", modal, true, true)
+	a.app.SetFocus(modal)
 }
 
 func openURL(url string) {

@@ -269,7 +269,7 @@ func (r *folderRepo) Upsert(name string, parentID *int) (*models.Folder, error) 
 	var id int
 	var err error
 
-	// SQL для проверки NULL требует разных запросов
+	// SQL for NULL check requires different queries
 	if parentID == nil {
 		err = r.db.QueryRow(
 			`SELECT id FROM folders WHERE name = ? AND parent_id IS NULL`,
@@ -291,4 +291,111 @@ func (r *folderRepo) Upsert(name string, parentID *int) (*models.Folder, error) 
 
 	// Create new folder
 	return r.Create(name, parentID)
+}
+
+func (r *folderRepo) GetFolderContent(folderID *int) ([]models.Item, error) {
+	var query string
+	var args []interface{}
+
+	if folderID == nil {
+		// Get root elements: bookmarks without folder and folders without parent
+		query = `
+			SELECT 
+				'bookmark' as type,
+				b.id,
+				b.title as name,
+				b.url,
+				b.description,
+				b.icon,
+				b.folder_id as parent_id
+			FROM bookmarks AS b
+			WHERE b.folder_id IS NULL
+			UNION ALL
+			SELECT 
+				'folder' as type,
+				f.id,
+				f.name,
+				NULL as url,
+				NULL as description,
+				NULL as icon,
+				f.parent_id as parent_id
+			FROM folders AS f
+			WHERE f.parent_id IS NULL OR f.parent_id = 0
+			ORDER BY type, name
+		`
+		args = []interface{}{}
+	} else {
+		// Get contents of a specific folder
+		query = `
+			SELECT 
+				'bookmark' as type,
+				b.id,
+				b.title as name,
+				b.url,
+				b.description,
+				b.icon,
+				b.folder_id as parent_id
+			FROM bookmarks AS b
+			WHERE b.folder_id = ?
+			UNION ALL
+			SELECT 
+				'folder' as type,
+				f.id,
+				f.name,
+				NULL as url,
+				NULL as description,
+				NULL as icon,
+				f.parent_id as parent_id
+			FROM folders AS f
+			WHERE f.parent_id = ?
+			ORDER BY type, name
+		`
+		args = []interface{}{*folderID, *folderID}
+	}
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []models.Item
+	for rows.Next() {
+		var item models.Item
+		var typeStr string
+		var url, description, icon sql.NullString
+		var parentID sql.NullInt64
+
+		err := rows.Scan(
+			&typeStr,
+			&item.ID,
+			&item.Name,
+			&url,
+			&description,
+			&icon,
+			&parentID,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		item.Type = models.ItemType(typeStr)
+		if url.Valid {
+			item.URL = &url.String
+		}
+		if description.Valid {
+			item.Description = &description.String
+		}
+		if icon.Valid {
+			item.Icon = &icon.String
+		}
+		if parentID.Valid {
+			pid := int(parentID.Int64)
+			item.ParentID = &pid
+		}
+
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
 }

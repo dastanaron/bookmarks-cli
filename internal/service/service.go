@@ -53,16 +53,16 @@ func (s *BookmarkService) GetByFolderID(folderID *int) ([]models.Bookmark, error
 	}
 
 	if folderID == nil {
-		// Если folderID == nil, возвращаем все закладки
+		// If folderID == nil, return all bookmarks
 		return all, nil
 	}
 
-	// Фильтруем закладки по folderID
+	// Filter bookmarks by folderID
 	var filtered []models.Bookmark
 	targetID := *folderID
 	for i := range all {
 		b := &all[i]
-		// Проверяем, что у закладки есть FolderID и он совпадает с искомым
+		// Check that bookmark has FolderID and it matches the target
 		if b.FolderID != nil && *b.FolderID == targetID {
 			filtered = append(filtered, *b)
 		}
@@ -169,4 +169,10 @@ func (s *FolderService) Update(f *models.Folder) error {
 // Delete deletes a folder by ID
 func (s *FolderService) Delete(id int) error {
 	return s.repo.Folders().Delete(id)
+}
+
+// GetFolderContent returns all items (bookmarks and subfolders) in a folder
+// If folderID is nil, returns all root items (bookmarks without folder and root folders)
+func (s *FolderService) GetFolderContent(folderID *int) ([]models.Item, error) {
+	return s.repo.Folders().GetFolderContent(folderID)
 }

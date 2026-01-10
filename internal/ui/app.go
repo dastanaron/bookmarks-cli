@@ -16,6 +16,7 @@ const (
 	ModeNormal = 1
 	ModeSearch = 2
 	ModeForm   = 3
+	ModeModal  = 4
 )
 
 // folderItem представляет элемент папки в списке
@@ -379,6 +380,20 @@ func (a *App) onSelect(index int, mainText, secondaryText string, shortcut rune)
 }
 
 func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
+	// Проверяем, открыто ли модальное окно, перед проверкой режима
+	if a.pages.HasPage("confirm") || a.pages.HasPage("error") {
+		// В модальном окне Tab переключает между кнопками, Enter выбирает
+		// Не обрабатываем эти события здесь, чтобы модальное окно могло их обработать
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyEnter, tcell.KeyLeft, tcell.KeyRight, tcell.KeyEscape:
+			// Передаем эти события модальному окну
+			return event
+		default:
+			// Для остальных событий также передаем их модальному окну
+			return event
+		}
+	}
+
 	switch a.mode {
 	case ModeNormal:
 		// Tab для переключения между деревом и списком
@@ -437,9 +452,16 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 					if currentIndex >= 0 && currentIndex < len(a.folderItems) {
 						item := a.folderItems[currentIndex]
 						if item.ID != nil {
-							if err := a.folderSvc.Delete(*item.ID); err == nil {
-								a.reloadFolders()
-							}
+							// Показываем подтверждение перед удалением
+							confirmMessage := fmt.Sprintf("Are you sure you want to delete folder '%s'?", item.Name)
+							a.showConfirm(confirmMessage, func() {
+								if err := a.folderSvc.Delete(*item.ID); err != nil {
+									a.showError(fmt.Sprintf("Error deleting folder: %v", err))
+								} else {
+									a.reloadFolders()
+									a.reloadBookmarks() // Обновляем закладки, так как они могут быть в удаленной папке
+								}
+							})
 						}
 					}
 					return nil
@@ -481,11 +503,15 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 				return nil
 			case 'd':
 				if a.current != nil {
-					if err := a.bookmarkSvc.Delete(a.current.ID); err != nil {
-						a.showError(fmt.Sprintf("Error deleting bookmark: %v", err))
-					} else {
-						a.reloadBookmarks()
-					}
+					// Show confirmation
+					confirmMessage := fmt.Sprintf("Are you sure you want to delete bookmark '%s'?", a.current.Title)
+					a.showConfirm(confirmMessage, func() {
+						if err := a.bookmarkSvc.Delete(a.current.ID); err != nil {
+							a.showError(fmt.Sprintf("Error deleting bookmark: %v", err))
+						} else {
+							a.reloadBookmarks()
+						}
+					})
 				}
 				return nil
 			case 'q':
@@ -496,7 +522,6 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 	case ModeForm:
 		switch event.Key() {
 		case tcell.KeyEscape:
-			// Закрываем любую открытую форму (закладки или папки)
 			a.pages.RemovePage("form")
 			a.pages.RemovePage("folderForm")
 			a.setMode(ModeNormal)
@@ -716,20 +741,52 @@ func (a *App) showError(message string) {
 		AddButtons([]string{"OK"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			a.pages.RemovePage("error")
-			// Возвращаем фокус на форму
-			if a.mode == ModeForm {
-				// Просто возвращаем фокус на форму через поиск активной страницы
-				// tview автоматически установит фокус на активный элемент
-				if a.pages.HasPage("form") {
-					// Форма закладки - фокус вернется автоматически
-				} else if a.pages.HasPage("folderForm") {
-					// Форма папки - фокус вернется автоматически
+			// Восстанавливаем режим и фокус
+			if a.pages.HasPage("form") || a.pages.HasPage("folderForm") {
+				a.mode = ModeForm
+			} else {
+				a.mode = ModeNormal
+				if a.focusOnFolders {
+					a.app.SetFocus(a.folderList)
+				} else {
+					a.app.SetFocus(a.list)
 				}
 			}
 		})
 
 	modal.SetBorder(true).SetTitle("Error")
 	a.pages.AddPage("error", modal, true, true)
+	oldMode := a.mode
+	a.mode = ModeModal
+	a.app.SetFocus(modal)
+	_ = oldMode
+}
+
+func (a *App) showConfirm(message string, onConfirm func()) {
+	modal := tview.NewModal().
+		SetText(message).
+		AddButtons([]string{"Cancel", "OK"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			a.pages.RemovePage("confirm")
+			if buttonIndex == 1 && onConfirm != nil {
+				onConfirm()
+			}
+			// Восстанавливаем режим и фокус
+			if a.pages.HasPage("form") || a.pages.HasPage("folderForm") {
+				a.mode = ModeForm
+			} else {
+				a.mode = ModeNormal
+				if a.focusOnFolders {
+					a.app.SetFocus(a.folderList)
+				} else {
+					a.app.SetFocus(a.list)
+				}
+			}
+		})
+
+	modal.SetBorder(true).SetTitle("Confirm")
+	a.pages.AddPage("confirm", modal, true, true)
+	a.mode = ModeModal
 	a.app.SetFocus(modal)
 }
 

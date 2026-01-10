@@ -269,7 +269,7 @@ func (r *folderRepo) Upsert(name string, parentID *int) (*models.Folder, error) 
 	var id int
 	var err error
 
-	// SQL для проверки NULL требует разных запросов
+	// SQL for NULL check requires different queries
 	if parentID == nil {
 		err = r.db.QueryRow(
 			`SELECT id FROM folders WHERE name = ? AND parent_id IS NULL`,
@@ -298,7 +298,7 @@ func (r *folderRepo) GetFolderContent(folderID *int) ([]models.Item, error) {
 	var args []interface{}
 
 	if folderID == nil {
-		// Получаем корневые элементы: закладки без папки и папки без родителя
+		// Get root elements: bookmarks without folder and folders without parent
 		query = `
 			SELECT 
 				'bookmark' as type,
@@ -325,7 +325,7 @@ func (r *folderRepo) GetFolderContent(folderID *int) ([]models.Item, error) {
 		`
 		args = []interface{}{}
 	} else {
-		// Получаем содержимое конкретной папки
+		// Get contents of a specific folder
 		query = `
 			SELECT 
 				'bookmark' as type,

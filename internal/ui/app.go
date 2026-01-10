@@ -20,32 +20,32 @@ const (
 	ModeModal  = 4
 )
 
-// folderItem представляет элемент папки в списке
+// folderItem represents a folder item in the list
 type folderItem struct {
-	ID    *int // nil для "All Bookmarks"
+	ID    *int // nil for "All Bookmarks"
 	Name  string
-	Level int // уровень вложенности (0 = корень)
+	Level int // nesting level (0 = root)
 }
 
 // App represents the TUI application
 type App struct {
 	app            *tview.Application
-	folderList     *tview.List // список папок вместо дерева
-	list           *tview.List // список элементов (закладки и папки)
+	folderList     *tview.List // list of folders instead of tree
+	list           *tview.List // list of items (bookmarks and folders)
 	detail         *tview.TextView
 	search         *tview.InputField
 	pages          *tview.Pages
 	mode           uint8
-	allItems       []models.Item    // все элементы текущей папки (без фильтрации)
-	items          []models.Item    // отфильтрованные элементы для отображения
-	currentItem    *models.Item     // текущий выбранный элемент (закладка или папка)
-	current        *models.Bookmark // для совместимости (используется в showDetails)
+	allItems       []models.Item    // all items in current folder (unfiltered)
+	items          []models.Item    // filtered items for display
+	currentItem    *models.Item     // currently selected item (bookmark or folder)
+	current        *models.Bookmark // for compatibility (used in showDetails)
 	status         *tview.TextView
 	bookmarkSvc    *service.BookmarkService
 	folderSvc      *service.FolderService
-	selectedFolder *int         // ID выбранной папки, nil = корневая папка
-	focusOnFolders bool         // true = фокус на списке папок, false = на списке элементов
-	folderItems    []folderItem // список папок для быстрого доступа
+	selectedFolder *int         // ID of selected folder, nil = root folder
+	focusOnFolders bool         // true = focus on folder list, false = on item list
+	folderItems    []folderItem // list of folders for quick access
 }
 
 // NewApp creates a new application instance
@@ -61,7 +61,7 @@ func NewApp(bookmarkSvc *service.BookmarkService, folderSvc *service.FolderServi
 		status:         tview.NewTextView().SetDynamicColors(true),
 		bookmarkSvc:    bookmarkSvc,
 		folderSvc:      folderSvc,
-		selectedFolder: nil, // По умолчанию показываем все закладки
+		selectedFolder: nil, // By default show all bookmarks
 		focusOnFolders: false,
 		folderItems:    []folderItem{},
 	}
@@ -97,14 +97,14 @@ func (a *App) Run() error {
 	a.search.SetDoneFunc(a.onSearchDone)
 	a.list.SetChangedFunc(a.onSelect)
 
-	// SetSelectedFunc не используем - выбор обрабатывается через Enter в globalInput
-	// Это позволяет избежать случайного выбора при навигации стрелками
+	// SetSelectedFunc is not used - selection is handled via Enter in globalInput
+	// This avoids accidental selection when navigating with arrows
 
 	a.app.SetRoot(a.pages, true)
 	a.app.SetInputCapture(a.globalInput)
 	a.updateStatus()
 
-	// Начальный фокус на списке закладок
+	// Initial focus on bookmark list
 	a.focusOnFolders = false
 	a.app.SetFocus(a.list)
 	return a.app.Run()
@@ -142,32 +142,32 @@ func (a *App) updateStatus() {
 }
 
 func (a *App) reloadBookmarks() error {
-	// Перезагружаем содержимое текущей папки
+	// Reload contents of current folder
 	return a.loadFolderContent()
 }
 
 func (a *App) loadFolderContent() error {
 	var err error
-	// Получаем содержимое выбранной папки (закладки и подпапки)
+	// Get contents of selected folder (bookmarks and subfolders)
 	a.allItems, err = a.folderSvc.GetFolderContent(a.selectedFolder)
 	if err != nil {
-		// В случае ошибки показываем пустой список
+		// On error show empty list
 		a.allItems = []models.Item{}
 		a.items = []models.Item{}
 		a.fillList()
 		return err
 	}
 
-	// Применяем поисковый фильтр, если есть
+	// Apply search filter if present
 	if a.search.GetText() != "" {
 		a.applyFilter(a.search.GetText())
 	} else {
-		// Без фильтра показываем все элементы
+		// Without filter show all items
 		a.items = a.allItems
 		a.fillList()
 	}
 
-	// Обновляем заголовок списка
+	// Update list title
 	if a.selectedFolder == nil {
 		a.list.SetTitle("Items (Root)")
 	} else {
@@ -183,14 +183,14 @@ func (a *App) loadFolderContent() error {
 }
 
 func (a *App) applyFilter(text string) {
-	// Если нет поискового запроса, показываем все элементы текущей папки
+	// If no search query, show all items in current folder
 	if text == "" {
 		a.items = a.allItems
 		a.fillList()
 		return
 	}
 
-	// Если папка не выбрана, ищем по всем закладкам через SearchInFolder
+	// If folder not selected, search all bookmarks via SearchInFolder
 	if a.selectedFolder == nil {
 		bookmarks, err := a.bookmarkSvc.SearchInFolder(text, nil)
 		if err != nil {
@@ -199,7 +199,7 @@ func (a *App) applyFilter(text string) {
 			return
 		}
 
-		// Преобразуем закладки в Items
+		// Convert bookmarks to Items
 		var items []models.Item
 		for _, b := range bookmarks {
 			item := models.Item{
@@ -218,19 +218,19 @@ func (a *App) applyFilter(text string) {
 		return
 	}
 
-	// Если папка выбрана, фильтруем элементы внутри этой папки
+	// If folder selected, filter items within that folder
 	textLower := strings.ToLower(text)
 	var filtered []models.Item
 	for _, item := range a.allItems {
 		itemNameLower := strings.ToLower(item.Name)
 
-		// Проверяем название
+		// Check name
 		if strings.Contains(itemNameLower, textLower) {
 			filtered = append(filtered, item)
 			continue
 		}
 
-		// Для закладок также проверяем URL и описание
+		// For bookmarks also check URL and description
 		if item.Type == models.ItemTypeBookmark {
 			if item.URL != nil {
 				urlLower := strings.ToLower(*item.URL)
@@ -252,10 +252,10 @@ func (a *App) applyFilter(text string) {
 	a.fillList()
 }
 
-// onFolderSelect обрабатывает выбор папки в списке (вызывается при нажатии Enter)
+// onFolderSelect handles folder selection in the list (called when Enter is pressed)
 func (a *App) onFolderSelect(item folderItem) {
-	// Устанавливаем выбранную папку
-	// Важно: создаем новую переменную для ID, чтобы избежать проблем с указателями
+	// Set selected folder
+	// Important: create a new variable for ID to avoid pointer issues
 	var newSelectedFolder *int
 	if item.ID != nil {
 		folderID := *item.ID
@@ -265,30 +265,30 @@ func (a *App) onFolderSelect(item folderItem) {
 	}
 	a.selectedFolder = newSelectedFolder
 
-	// Обновить заголовок списка папок
+	// Update folder list title
 	if item.ID == nil {
 		a.folderList.SetTitle("Folders (All)")
 	} else {
 		a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
 	}
 
-	// Загружаем содержимое выбранной папки
+	// Load contents of selected folder
 	if err := a.loadFolderContent(); err != nil {
-		// В случае ошибки показываем пустой список
+		// On error show empty list
 		a.allItems = []models.Item{}
 		a.items = []models.Item{}
 		a.fillList()
 	}
 
-	// Обновить статус бар
+	// Update status bar
 	a.updateStatus()
 
-	// Переключить фокус на список элементов для удобства
+	// Switch focus to item list for convenience
 	a.focusOnFolders = false
 	a.app.SetFocus(a.list)
 
-	// НЕ вызываем app.Draw() здесь - это может вызвать зависание
-	// UI обновится автоматически при следующем цикле обработки событий
+	// Do NOT call app.Draw() here - this may cause freezing
+	// UI will update automatically on the next event processing cycle
 }
 
 func (a *App) fillList() {
@@ -297,14 +297,14 @@ func (a *App) fillList() {
 		index := i
 		item := a.items[i]
 
-		// Формируем отображаемое название и вторичный текст
+		// Build display name and secondary text
 		var mainText, secondaryText string
 		if item.Type == models.ItemTypeFolder {
-			// Для папок показываем иконку папки
+			// For folders show folder icon
 			mainText = fmt.Sprintf("📁 %s", item.Name)
 			secondaryText = "Folder"
 		} else {
-			// Для закладок показываем название и URL
+			// For bookmarks show name and URL
 			mainText = item.Name
 			if item.URL != nil {
 				secondaryText = *item.URL
@@ -314,7 +314,7 @@ func (a *App) fillList() {
 		a.list.AddItem(mainText, secondaryText, 0, func() {
 			if index >= 0 && index < len(a.items) {
 				a.currentItem = &a.items[index]
-				// Для совместимости создаем bookmark, если это закладка
+				// For compatibility create bookmark if it's a bookmark
 				if a.items[index].Type == models.ItemTypeBookmark {
 					a.convertItemToBookmark(&a.items[index])
 				} else {
@@ -325,7 +325,7 @@ func (a *App) fillList() {
 		})
 	}
 
-	// Устанавливаем текущий элемент, если есть
+	// Set current item if present
 	if len(a.items) > 0 {
 		a.currentItem = &a.items[0]
 		if a.items[0].Type == models.ItemTypeBookmark {
@@ -341,7 +341,7 @@ func (a *App) fillList() {
 	}
 }
 
-// convertItemToBookmark преобразует Item в Bookmark для совместимости
+// convertItemToBookmark converts Item to Bookmark for compatibility
 func (a *App) convertItemToBookmark(item *models.Item) {
 	if item.Type != models.ItemTypeBookmark {
 		return
@@ -349,7 +349,7 @@ func (a *App) convertItemToBookmark(item *models.Item) {
 
 	var folderName *string
 	if item.ParentID != nil {
-		// Получаем название папки по ID
+		// Get folder name by ID
 		folder, err := a.folderSvc.GetByID(*item.ParentID)
 		if err == nil && folder != nil {
 			folderName = &folder.Name
@@ -378,7 +378,7 @@ func (a *App) convertItemToBookmark(item *models.Item) {
 	a.current = &bookmark
 }
 
-// reloadFolders перезагружает список папок
+// reloadFolders reloads the folder list
 func (a *App) reloadFolders() error {
 	if err := a.fillFolderList(); err != nil {
 		return err
@@ -386,14 +386,14 @@ func (a *App) reloadFolders() error {
 	return nil
 }
 
-// fillFolderList заполняет список папок с отступами для показа иерархии
+// fillFolderList fills the folder list with indentation to show hierarchy
 func (a *App) fillFolderList() error {
 	folders, err := a.folderSvc.ListAll()
 	if err != nil {
 		return err
 	}
 
-	// Создаем карту папок для быстрого доступа
+	// Create folder map for quick access
 	folderMap := make(map[int]*models.Folder)
 	for i := range folders {
 		folderMap[folders[i].ID] = &folders[i]
@@ -402,36 +402,36 @@ func (a *App) fillFolderList() error {
 	a.folderList.Clear()
 	a.folderItems = []folderItem{}
 
-	// Добавляем корневой элемент "All Bookmarks"
+	// Add root element "All Bookmarks"
 	allItem := folderItem{ID: nil, Name: "All Bookmarks", Level: 0}
 	a.folderItems = append(a.folderItems, allItem)
 	a.folderList.AddItem(allItem.Name, "", 0, nil)
 
-	// Рекурсивная функция для добавления папок с правильной иерархией
+	// Recursive function to add folders with proper hierarchy
 	var buildList func(parentID *int, level int)
 	buildList = func(parentID *int, level int) {
 		for _, folder := range folders {
-			// Проверяем, является ли эта папка дочерней для текущего родителя
+			// Check if this folder is a child of current parent
 			var isChild bool
 			if parentID == nil {
-				// Ищем папки без родителя или с parentID = 0
+				// Look for folders without parent or with parentID = 0
 				isChild = folder.ParentID == nil || *folder.ParentID == 0
 			} else {
-				// Ищем папки с указанным родителем
+				// Look for folders with specified parent
 				isChild = folder.ParentID != nil && *folder.ParentID == *parentID
 			}
 
 			if isChild {
-				// Создаем отступ в зависимости от уровня
+				// Create indent based on level
 				indent := ""
 				for i := 0; i < level; i++ {
-					indent += "  " // 2 пробела на уровень
+					indent += "  " // 2 spaces per level
 				}
 				if level > 0 {
-					indent += "└─ " // символ для показа вложенности
+					indent += "└─ " // symbol to show nesting
 				}
 
-				// Важно: создаем копию ID, чтобы избежать проблем с указателями
+				// Important: create a copy of ID to avoid pointer issues
 				folderID := folder.ID
 				item := folderItem{
 					ID:    &folderID,
@@ -441,14 +441,14 @@ func (a *App) fillFolderList() error {
 				a.folderItems = append(a.folderItems, item)
 				a.folderList.AddItem(indent+folder.Name, "", 0, nil)
 
-				// Рекурсивно добавляем дочерние папки
+				// Recursively add child folders
 				childParentID := &folder.ID
 				buildList(childParentID, level+1)
 			}
 		}
 	}
 
-	// Начинаем с корневого уровня (parentID = nil)
+	// Start from root level (parentID = nil)
 	buildList(nil, 1)
 
 	a.folderList.SetTitle("Folders (All)")
@@ -465,7 +465,7 @@ func (a *App) showDetails() {
 	var text string
 
 	if item.Type == models.ItemTypeFolder {
-		// Показываем информацию о папке
+		// Show folder information
 		parentName := "Root"
 		if item.ParentID != nil {
 			folder, err := a.folderSvc.GetByID(*item.ParentID)
@@ -477,10 +477,10 @@ func (a *App) showDetails() {
 			"[::b]Type:[::-]\nFolder\n\n[::b]Name:[::-]\n%s\n\n[::b]Parent:[::-]\n%s",
 			item.Name, parentName)
 	} else {
-		// Показываем информацию о закладке
+		// Show bookmark information
 		b := a.current
 		if b == nil {
-			// Если current не установлен, используем данные из item
+			// If current is not set, use data from item
 			url := ""
 			if item.URL != nil {
 				url = *item.URL
@@ -527,14 +527,14 @@ func (a *App) setMode(m uint8) {
 	}
 }
 
-// toggleFocus переключает фокус между списком папок и списком закладок
+// toggleFocus switches focus between folder list and bookmark list
 func (a *App) toggleFocus() {
 	a.focusOnFolders = !a.focusOnFolders
 	if a.focusOnFolders {
 		a.app.SetFocus(a.folderList)
-		// Обновим заголовок с информацией о выбранной папке
+		// Update title with selected folder information
 		if a.selectedFolder != nil {
-			// Найти имя выбранной папки
+			// Find selected folder name
 			for _, item := range a.folderItems {
 				if item.ID != nil && *item.ID == *a.selectedFolder {
 					a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
@@ -547,7 +547,7 @@ func (a *App) toggleFocus() {
 	} else {
 		a.app.SetFocus(a.list)
 		if a.selectedFolder != nil {
-			// Обновим заголовок списка папок
+			// Update folder list title
 			for _, item := range a.folderItems {
 				if item.ID != nil && *item.ID == *a.selectedFolder {
 					a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
@@ -558,7 +558,7 @@ func (a *App) toggleFocus() {
 			a.folderList.SetTitle("Folders (All)")
 		}
 	}
-	// Обновить статус бар
+	// Update status bar
 	a.updateStatus()
 }
 
@@ -572,7 +572,7 @@ func (a *App) onSearchDone(key tcell.Key) {
 		a.setMode(ModeNormal)
 	case tcell.KeyEscape:
 		a.search.SetText("")
-		// При очистке поиска перезагружаем содержимое папки
+		// When clearing search reload folder contents
 		if err := a.loadFolderContent(); err != nil {
 			a.allItems = []models.Item{}
 			a.items = []models.Item{}
@@ -595,64 +595,64 @@ func (a *App) onSelect(index int, mainText, secondaryText string, shortcut rune)
 }
 
 func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
-	// Проверяем, открыто ли модальное окно, перед проверкой режима
+	// Check if modal window is open before checking mode
 	if a.pages.HasPage("confirm") || a.pages.HasPage("error") {
-		// В модальном окне Tab переключает между кнопками, Enter выбирает
-		// Не обрабатываем эти события здесь, чтобы модальное окно могло их обработать
+		// In modal window Tab switches between buttons, Enter selects
+		// Don't handle these events here so modal window can handle them
 		switch event.Key() {
 		case tcell.KeyTab, tcell.KeyEnter, tcell.KeyLeft, tcell.KeyRight, tcell.KeyEscape:
-			// Передаем эти события модальному окну
+			// Pass these events to modal window
 			return event
 		default:
-			// Для остальных событий также передаем их модальному окну
+			// For other events also pass them to modal window
 			return event
 		}
 	}
 
 	switch a.mode {
 	case ModeNormal:
-		// Tab для переключения между деревом и списком
+		// Tab to switch between tree and list
 		if event.Key() == tcell.KeyTab {
 			a.toggleFocus()
 			return nil
 		}
 
-		// Если фокус на списке папок, обрабатываем горячие клавиши
+		// If focus on folder list, handle hotkeys
 		if a.focusOnFolders {
 			switch event.Key() {
 			case tcell.KeyEnter:
-				// Enter - выбрать папку
-				// Получаем текущий индекс из списка папок
+				// Enter - select folder
+				// Get current index from folder list
 				currentIndex := a.folderList.GetCurrentItem()
 				if currentIndex >= 0 && currentIndex < len(a.folderItems) {
 					item := a.folderItems[currentIndex]
-					// Вызываем обработчик выбора папки
+					// Call folder selection handler
 					a.onFolderSelect(item)
-					// Возвращаем nil, чтобы событие не передавалось дальше
+					// Return nil so event is not passed further
 					return nil
 				}
 				return nil
 			case tcell.KeyRune:
 				switch event.Rune() {
 				case 'q':
-					// Выход из приложения
+					// Exit application
 					a.app.Stop()
 					return nil
 				case '/':
-					// Поиск
+					// Search
 					a.setMode(ModeSearch)
 					return nil
 				case 'a':
-					// Добавить новую папку
+					// Add new folder
 					a.showFolderForm(&models.Folder{}, false)
 					return nil
 				case 'e':
-					// Редактировать текущую папку
+					// Edit current folder
 					currentIndex := a.folderList.GetCurrentItem()
 					if currentIndex >= 0 && currentIndex < len(a.folderItems) {
 						item := a.folderItems[currentIndex]
 						if item.ID != nil {
-							// Получаем папку из базы
+							// Get folder from database
 							folder, err := a.folderSvc.GetByID(*item.ID)
 							if err == nil && folder != nil {
 								f := *folder
@@ -662,19 +662,19 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 					}
 					return nil
 				case 'd':
-					// Удалить текущую папку
+					// Delete current folder
 					currentIndex := a.folderList.GetCurrentItem()
 					if currentIndex >= 0 && currentIndex < len(a.folderItems) {
 						item := a.folderItems[currentIndex]
 						if item.ID != nil {
-							// Показываем подтверждение перед удалением
+							// Show confirmation before deletion
 							confirmMessage := fmt.Sprintf("Are you sure you want to delete folder '%s'?", item.Name)
 							a.showConfirm(confirmMessage, func() {
 								if err := a.folderSvc.Delete(*item.ID); err != nil {
 									a.showError(fmt.Sprintf("Error deleting folder: %v", err))
 								} else {
 									a.reloadFolders()
-									a.reloadBookmarks() // Обновляем закладки, так как они могут быть в удаленной папке
+									a.reloadBookmarks() // Reload bookmarks as they may be in deleted folder
 								}
 							})
 						}
@@ -682,21 +682,21 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 					return nil
 				}
 			}
-			// Остальные события передаем списку для навигации
+			// Pass other events to list for navigation
 			return event
 		}
 
-		// Если фокус на списке элементов, обрабатываем обычные команды
+		// If focus on item list, handle normal commands
 		switch event.Key() {
 		case tcell.KeyEnter:
 			if a.currentItem != nil {
 				if a.currentItem.Type == models.ItemTypeBookmark {
-					// Открываем закладку
+					// Open bookmark
 					if a.currentItem.URL != nil && *a.currentItem.URL != "" {
 						openURL(*a.currentItem.URL)
 					}
 				} else if a.currentItem.Type == models.ItemTypeFolder {
-					// Переходим в папку
+					// Navigate into folder
 					folderID := a.currentItem.ID
 					a.selectedFolder = &folderID
 					if err := a.loadFolderContent(); err != nil {
@@ -714,10 +714,10 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 				a.setMode(ModeSearch)
 				return nil
 			case 'a':
-				// Создаем новую закладку
+				// Create new bookmark
 				newBookmark := models.Bookmark{}
-				// Если выбрана папка, устанавливаем её по умолчанию
-				// Важно: создаем копию указателя, чтобы избежать проблем
+				// If folder selected, set it as default
+				// Important: create a copy of pointer to avoid issues
 				if a.selectedFolder != nil {
 					folderID := *a.selectedFolder
 					newBookmark.FolderID = &folderID
@@ -727,7 +727,7 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 			case 'e':
 				if a.currentItem != nil {
 					if a.currentItem.Type == models.ItemTypeBookmark {
-						// Редактируем закладку
+						// Edit bookmark
 						if a.current == nil {
 							a.convertItemToBookmark(a.currentItem)
 						}
@@ -736,7 +736,7 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 							a.showForm(&b, true)
 						}
 					} else if a.currentItem.Type == models.ItemTypeFolder {
-						// Редактируем папку
+						// Edit folder
 						folder, err := a.folderSvc.GetByID(a.currentItem.ID)
 						if err == nil && folder != nil {
 							f := *folder
@@ -748,7 +748,7 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 			case 'd':
 				if a.currentItem != nil {
 					if a.currentItem.Type == models.ItemTypeBookmark {
-						// Удаляем закладку
+						// Delete bookmark
 						if a.current == nil {
 							a.convertItemToBookmark(a.currentItem)
 						}
@@ -763,7 +763,7 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 							})
 						}
 					} else if a.currentItem.Type == models.ItemTypeFolder {
-						// Удаляем папку
+						// Delete folder
 						confirmMessage := fmt.Sprintf("Are you sure you want to delete folder '%s'?", a.currentItem.Name)
 						a.showConfirm(confirmMessage, func() {
 							if err := a.folderSvc.Delete(a.currentItem.ID); err != nil {
@@ -797,33 +797,33 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 	url := b.URL
 	desc := b.Description
 
-	// Получаем список всех папок для выпадающего списка
+	// Get list of all folders for dropdown
 	folders, err := a.folderSvc.ListAll()
 	if err != nil {
-		// В случае ошибки используем пустой список
+		// On error use empty list
 		folders = []models.Folder{}
 	}
 
-	// Создаем список опций для выпадающего списка
-	// Первая опция - "None" (нет папки)
+	// Create list of options for dropdown
+	// First option - "None" (no folder)
 	folderOptions := []string{"None"}
 	folderIDs := make([]*int, 1, len(folders)+1)
-	folderIDs[0] = nil // nil означает отсутствие папки
+	folderIDs[0] = nil // nil means no folder
 
-	// Добавляем все папки
-	// Важно: создаем копии ID в отдельном слайсе, чтобы избежать проблем с указателями
+	// Add all folders
+	// Important: create copies of IDs in separate slice to avoid pointer issues
 	folderIDValues := make([]int, len(folders))
 	for i, folder := range folders {
 		folderOptions = append(folderOptions, folder.Name)
-		folderIDValues[i] = folder.ID                     // Сохраняем копию ID
-		folderIDs = append(folderIDs, &folderIDValues[i]) // Указатель на элемент слайса
+		folderIDValues[i] = folder.ID                     // Save copy of ID
+		folderIDs = append(folderIDs, &folderIDValues[i]) // Pointer to slice element
 	}
 
-	// Находим индекс текущей выбранной папки
-	selectedIndex := 0 // По умолчанию "None"
-	// Если это новая закладка и FolderID не установлен, но есть selectedFolder, используем его
+	// Find index of currently selected folder
+	selectedIndex := 0 // Default "None"
+	// If this is a new bookmark and FolderID is not set, but selectedFolder exists, use it
 	if !edit && b.FolderID == nil && a.selectedFolder != nil {
-		// Создаем копию указателя
+		// Create copy of pointer
 		folderID := *a.selectedFolder
 		b.FolderID = &folderID
 	}
@@ -841,9 +841,9 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 	form.AddInputField("URL", url, 60, nil, func(t string) { b.URL = t })
 	form.AddInputField("Description", desc, 60, nil, func(t string) { b.Description = t })
 
-	// Добавляем выпадающий список для выбора папки
+	// Add dropdown for folder selection
 	form.AddDropDown("Folder", folderOptions, selectedIndex, func(option string, index int) {
-		// Устанавливаем FolderID в зависимости от выбранной опции
+		// Set FolderID based on selected option
 		if index >= 0 && index < len(folderIDs) {
 			b.FolderID = folderIDs[index]
 		} else {
@@ -852,16 +852,16 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 	})
 
 	form.AddButton("Save", func() {
-		// Валидация: URL обязателен
+		// Validation: URL is required
 		if b.URL == "" {
 			a.showError("Error: URL is required")
-			return // Не закрываем форму, чтобы пользователь мог исправить
+			return // Don't close form so user can fix it
 		}
 
-		// Валидация: Title желателен, но не обязателен
+		// Validation: Title is desirable but not required
 		if b.Title == "" {
-			// Можно использовать URL как заголовок, но лучше предупредить
-			// Пока просто продолжаем
+			// Can use URL as title, but better to warn
+			// For now just continue
 		}
 
 		var err error
@@ -872,12 +872,12 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 		}
 
 		if err != nil {
-			// Показываем ошибку пользователю
+			// Show error to user
 			a.showError(fmt.Sprintf("Error saving bookmark: %v", err))
-			return // Не закрываем форму при ошибке
+			return // Don't close form on error
 		}
 
-		// Успешно сохранено
+		// Successfully saved
 		a.reloadBookmarks()
 		a.pages.RemovePage("form")
 		a.setMode(ModeNormal)
@@ -893,7 +893,7 @@ func (a *App) showForm(b *models.Bookmark, edit bool) {
 	a.mode = ModeForm
 }
 
-// showFolderForm показывает форму для создания/редактирования папки
+// showFolderForm shows form for creating/editing folder
 func (a *App) showFolderForm(f *models.Folder, edit bool) {
 	name := f.Name
 	var parentFolderID *int
@@ -901,27 +901,27 @@ func (a *App) showFolderForm(f *models.Folder, edit bool) {
 		parentFolderID = f.ParentID
 	}
 
-	// Получаем список всех папок для выпадающего списка родительской папки
+	// Get list of all folders for parent folder dropdown
 	folders, err := a.folderSvc.ListAll()
 	if err != nil {
 		folders = []models.Folder{}
 	}
 
-	// Создаем список опций для выпадающего списка
-	// Первая опция - "None" (корневая папка)
+	// Create list of options for dropdown
+	// First option - "None" (root folder)
 	parentOptions := []string{"None (Root)"}
 	parentIDs := make([]*int, 1, len(folders)+1)
-	parentIDs[0] = nil // nil означает корневую папку
+	parentIDs[0] = nil // nil means root folder
 
-	// Добавляем все папки (исключая текущую при редактировании)
+	// Add all folders (excluding current one when editing)
 	folderIDValues := make([]int, 0, len(folders))
 	for i := range folders {
 		folder := &folders[i]
-		// При редактировании исключаем саму папку и её дочерние папки (чтобы избежать циклических ссылок)
+		// When editing exclude the folder itself and its child folders (to avoid circular references)
 		if edit && f.ID != 0 && folder.ID == f.ID {
 			continue
 		}
-		// Также исключаем дочерние папки (упрощенная проверка)
+		// Also exclude child folders (simplified check)
 		if edit && f.ID != 0 && folder.ParentID != nil && *folder.ParentID == f.ID {
 			continue
 		}
@@ -930,8 +930,8 @@ func (a *App) showFolderForm(f *models.Folder, edit bool) {
 		parentIDs = append(parentIDs, &folderIDValues[len(folderIDValues)-1])
 	}
 
-	// Находим индекс текущей родительской папки
-	selectedParentIndex := 0 // По умолчанию "None (Root)"
+	// Find index of current parent folder
+	selectedParentIndex := 0 // Default "None (Root)"
 	if parentFolderID != nil {
 		for i, pid := range parentIDs {
 			if pid != nil && *pid == *parentFolderID {
@@ -944,9 +944,9 @@ func (a *App) showFolderForm(f *models.Folder, edit bool) {
 	form := tview.NewForm()
 	form.AddInputField("Name", name, 60, nil, func(t string) { f.Name = t })
 
-	// Добавляем выпадающий список для выбора родительской папки
+	// Add dropdown for parent folder selection
 	form.AddDropDown("Parent Folder", parentOptions, selectedParentIndex, func(option string, index int) {
-		// Устанавливаем ParentID в зависимости от выбранной опции
+		// Set ParentID based on selected option
 		if index >= 0 && index < len(parentIDs) {
 			f.ParentID = parentIDs[index]
 		} else {
@@ -955,10 +955,10 @@ func (a *App) showFolderForm(f *models.Folder, edit bool) {
 	})
 
 	form.AddButton("Save", func() {
-		// Валидация: название папки обязательно
+		// Validation: folder name is required
 		if f.Name == "" {
 			a.showError("Error: Folder name is required")
-			return // Не закрываем форму
+			return // Don't close form
 		}
 
 		var err error
@@ -969,13 +969,13 @@ func (a *App) showFolderForm(f *models.Folder, edit bool) {
 		}
 
 		if err != nil {
-			// Показываем ошибку пользователю
+			// Show error to user
 			a.showError(fmt.Sprintf("Error saving folder: %v", err))
-			return // Не закрываем форму при ошибке
+			return // Don't close form on error
 		}
 
-		// Успешно сохранено
-		// Перезагружаем список папок и закладок
+		// Successfully saved
+		// Reload folder and bookmark lists
 		a.reloadFolders()
 		a.reloadBookmarks()
 		a.pages.RemovePage("folderForm")
@@ -996,14 +996,14 @@ func (a *App) showFolderForm(f *models.Folder, edit bool) {
 	a.mode = ModeForm
 }
 
-// showError показывает модальное окно с ошибкой
+// showError shows modal window with error
 func (a *App) showError(message string) {
 	modal := tview.NewModal().
 		SetText(message).
 		AddButtons([]string{"OK"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			a.pages.RemovePage("error")
-			// Восстанавливаем режим и фокус
+			// Restore mode and focus
 			if a.pages.HasPage("form") || a.pages.HasPage("folderForm") {
 				a.mode = ModeForm
 			} else {
@@ -1033,7 +1033,7 @@ func (a *App) showConfirm(message string, onConfirm func()) {
 			if buttonIndex == 1 && onConfirm != nil {
 				onConfirm()
 			}
-			// Восстанавливаем режим и фокус
+			// Restore mode and focus
 			if a.pages.HasPage("form") || a.pages.HasPage("folderForm") {
 				a.mode = ModeForm
 			} else {

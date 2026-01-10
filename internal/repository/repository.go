@@ -23,6 +23,9 @@ type FolderRepository interface {
 	Update(f *models.Folder) error
 	Delete(id int) error
 	Upsert(name string, parentID *int) (*models.Folder, error)
+	// GetFolderContent returns all items (bookmarks and subfolders) in a folder
+	// If folderID is nil, returns all root items (bookmarks without folder and root folders)
+	GetFolderContent(folderID *int) ([]models.Item, error)
 }
 
 // Repository combines all repositories

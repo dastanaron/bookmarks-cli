@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/dastanaron/bookmarks/internal/models"
 	"github.com/dastanaron/bookmarks/internal/service"
@@ -30,19 +31,20 @@ type folderItem struct {
 type App struct {
 	app            *tview.Application
 	folderList     *tview.List // список папок вместо дерева
-	list           *tview.List // список закладок
+	list           *tview.List // список элементов (закладки и папки)
 	detail         *tview.TextView
 	search         *tview.InputField
 	pages          *tview.Pages
 	mode           uint8
-	all            []models.Bookmark
-	filtered       []models.Bookmark
-	current        *models.Bookmark
+	allItems       []models.Item    // все элементы текущей папки (без фильтрации)
+	items          []models.Item    // отфильтрованные элементы для отображения
+	currentItem    *models.Item     // текущий выбранный элемент (закладка или папка)
+	current        *models.Bookmark // для совместимости (используется в showDetails)
 	status         *tview.TextView
 	bookmarkSvc    *service.BookmarkService
 	folderSvc      *service.FolderService
-	selectedFolder *int         // ID выбранной папки, nil = все закладки
-	focusOnFolders bool         // true = фокус на списке папок, false = на списке закладок
+	selectedFolder *int         // ID выбранной папки, nil = корневая папка
+	focusOnFolders bool         // true = фокус на списке папок, false = на списке элементов
 	folderItems    []folderItem // список папок для быстрого доступа
 }
 
@@ -67,7 +69,7 @@ func NewApp(bookmarkSvc *service.BookmarkService, folderSvc *service.FolderServi
 
 // Run starts the application
 func (a *App) Run() error {
-	a.list.SetBorder(true).SetTitle("Bookmarks")
+	a.list.SetBorder(true).SetTitle("Items")
 	a.detail.SetBorder(true).SetTitle("Details")
 	a.folderList.SetBorder(true).SetTitle("Folders")
 
@@ -83,11 +85,11 @@ func (a *App) Run() error {
 
 	a.pages.AddPage("main", main, true, true)
 
-	if err := a.reloadBookmarks(); err != nil {
+	if err := a.fillFolderList(); err != nil {
 		return err
 	}
 
-	if err := a.fillFolderList(); err != nil {
+	if err := a.loadFolderContent(); err != nil {
 		return err
 	}
 
@@ -109,16 +111,27 @@ func (a *App) Run() error {
 }
 
 func (a *App) updateStatus() {
-	// Get total count of bookmarks
-	totalCount := len(a.all)
-	filteredCount := len(a.filtered)
+	// Get total count of items (bookmarks and folders)
+	itemCount := len(a.items)
+	var bookmarkCount, folderCount int
+	for _, item := range a.items {
+		if item.Type == models.ItemTypeBookmark {
+			bookmarkCount++
+		} else {
+			folderCount++
+		}
+	}
 
 	// Build status text with counts
 	var countText string
-	if filteredCount != totalCount {
-		countText = fmt.Sprintf(" [::b]%d/%d[::r] bookmarks", filteredCount, totalCount)
+	if itemCount > 0 {
+		if folderCount > 0 {
+			countText = fmt.Sprintf(" [::b]%d[::r] items (%d bookmarks, %d folders)", itemCount, bookmarkCount, folderCount)
+		} else {
+			countText = fmt.Sprintf(" [::b]%d[::r] items", itemCount)
+		}
 	} else {
-		countText = fmt.Sprintf(" [::b]%d[::r] bookmarks", totalCount)
+		countText = " [::b]0[::r] items"
 	}
 
 	statusText := "[::b]Tab[::r] switch  [::b]/[::r] search  [::b]a[::r] add  [::b]e[::r] edit  [::b]d[::r] del  [::b]Enter[::r] open/select  [::b]q[::r] quit" + countText
@@ -129,29 +142,113 @@ func (a *App) updateStatus() {
 }
 
 func (a *App) reloadBookmarks() error {
+	// Перезагружаем содержимое текущей папки
+	return a.loadFolderContent()
+}
+
+func (a *App) loadFolderContent() error {
 	var err error
-	a.all, err = a.bookmarkSvc.ListAll()
+	// Получаем содержимое выбранной папки (закладки и подпапки)
+	a.allItems, err = a.folderSvc.GetFolderContent(a.selectedFolder)
 	if err != nil {
+		// В случае ошибки показываем пустой список
+		a.allItems = []models.Item{}
+		a.items = []models.Item{}
+		a.fillList()
 		return err
 	}
-	// Применить фильтр с учетом выбранной папки (если есть)
-	// Важно: сохраняем selectedFolder при перезагрузке
-	a.applyFilter(a.search.GetText())
+
+	// Применяем поисковый фильтр, если есть
+	if a.search.GetText() != "" {
+		a.applyFilter(a.search.GetText())
+	} else {
+		// Без фильтра показываем все элементы
+		a.items = a.allItems
+		a.fillList()
+	}
+
+	// Обновляем заголовок списка
+	if a.selectedFolder == nil {
+		a.list.SetTitle("Items (Root)")
+	} else {
+		folder, err := a.folderSvc.GetByID(*a.selectedFolder)
+		if err == nil && folder != nil {
+			a.list.SetTitle(fmt.Sprintf("Items (%s)", folder.Name))
+		} else {
+			a.list.SetTitle("Items")
+		}
+	}
+
 	return nil
 }
 
 func (a *App) applyFilter(text string) {
-	var err error
-	// Используем SearchInFolder для учета выбранной папки
-	// Важно: передаем a.selectedFolder, который может быть nil (все закладки) или указателем на ID папки
-	a.filtered, err = a.bookmarkSvc.SearchInFolder(text, a.selectedFolder)
-	if err != nil {
-		// В случае ошибки показываем пустой список
-		a.filtered = []models.Bookmark{}
+	// Если нет поискового запроса, показываем все элементы текущей папки
+	if text == "" {
+		a.items = a.allItems
 		a.fillList()
 		return
 	}
-	// Заполняем список отфильтрованными закладками
+
+	// Если папка не выбрана, ищем по всем закладкам через SearchInFolder
+	if a.selectedFolder == nil {
+		bookmarks, err := a.bookmarkSvc.SearchInFolder(text, nil)
+		if err != nil {
+			a.items = []models.Item{}
+			a.fillList()
+			return
+		}
+
+		// Преобразуем закладки в Items
+		var items []models.Item
+		for _, b := range bookmarks {
+			item := models.Item{
+				Type:        models.ItemTypeBookmark,
+				ID:          b.ID,
+				Name:        b.Title,
+				URL:         &b.URL,
+				Description: &b.Description,
+				Icon:        b.Icon,
+				ParentID:    b.FolderID,
+			}
+			items = append(items, item)
+		}
+		a.items = items
+		a.fillList()
+		return
+	}
+
+	// Если папка выбрана, фильтруем элементы внутри этой папки
+	textLower := strings.ToLower(text)
+	var filtered []models.Item
+	for _, item := range a.allItems {
+		itemNameLower := strings.ToLower(item.Name)
+
+		// Проверяем название
+		if strings.Contains(itemNameLower, textLower) {
+			filtered = append(filtered, item)
+			continue
+		}
+
+		// Для закладок также проверяем URL и описание
+		if item.Type == models.ItemTypeBookmark {
+			if item.URL != nil {
+				urlLower := strings.ToLower(*item.URL)
+				if strings.Contains(urlLower, textLower) {
+					filtered = append(filtered, item)
+					continue
+				}
+			}
+			if item.Description != nil {
+				descLower := strings.ToLower(*item.Description)
+				if strings.Contains(descLower, textLower) {
+					filtered = append(filtered, item)
+					continue
+				}
+			}
+		}
+	}
+	a.items = filtered
 	a.fillList()
 }
 
@@ -175,17 +272,18 @@ func (a *App) onFolderSelect(item folderItem) {
 		a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
 	}
 
-	// Применить фильтр с учетом выбранной папки и текущего поискового запроса
-	// Важно: вызываем applyFilter ПОСЛЕ установки selectedFolder
-	searchText := a.search.GetText()
-
-	// Применяем фильтр - это обновит a.filtered и вызовет fillList()
-	a.applyFilter(searchText)
+	// Загружаем содержимое выбранной папки
+	if err := a.loadFolderContent(); err != nil {
+		// В случае ошибки показываем пустой список
+		a.allItems = []models.Item{}
+		a.items = []models.Item{}
+		a.fillList()
+	}
 
 	// Обновить статус бар
 	a.updateStatus()
 
-	// Переключить фокус на список закладок для удобства
+	// Переключить фокус на список элементов для удобства
 	a.focusOnFolders = false
 	a.app.SetFocus(a.list)
 
@@ -195,22 +293,89 @@ func (a *App) onFolderSelect(item folderItem) {
 
 func (a *App) fillList() {
 	a.list.Clear()
-	for i := range a.filtered {
+	for i := range a.items {
 		index := i
-		a.list.AddItem(a.filtered[i].Title, a.filtered[i].URL, 0, func() {
-			if index >= 0 && index < len(a.filtered) {
-				a.current = &a.filtered[index]
+		item := a.items[i]
+
+		// Формируем отображаемое название и вторичный текст
+		var mainText, secondaryText string
+		if item.Type == models.ItemTypeFolder {
+			// Для папок показываем иконку папки
+			mainText = fmt.Sprintf("📁 %s", item.Name)
+			secondaryText = "Folder"
+		} else {
+			// Для закладок показываем название и URL
+			mainText = item.Name
+			if item.URL != nil {
+				secondaryText = *item.URL
+			}
+		}
+
+		a.list.AddItem(mainText, secondaryText, 0, func() {
+			if index >= 0 && index < len(a.items) {
+				a.currentItem = &a.items[index]
+				// Для совместимости создаем bookmark, если это закладка
+				if a.items[index].Type == models.ItemTypeBookmark {
+					a.convertItemToBookmark(&a.items[index])
+				} else {
+					a.current = nil
+				}
 				a.showDetails()
 			}
 		})
 	}
-	if len(a.filtered) > 0 {
-		a.current = &a.filtered[0]
+
+	// Устанавливаем текущий элемент, если есть
+	if len(a.items) > 0 {
+		a.currentItem = &a.items[0]
+		if a.items[0].Type == models.ItemTypeBookmark {
+			a.convertItemToBookmark(&a.items[0])
+		} else {
+			a.current = nil
+		}
 		a.showDetails()
 	} else {
+		a.currentItem = nil
 		a.current = nil
 		a.showDetails()
 	}
+}
+
+// convertItemToBookmark преобразует Item в Bookmark для совместимости
+func (a *App) convertItemToBookmark(item *models.Item) {
+	if item.Type != models.ItemTypeBookmark {
+		return
+	}
+
+	var folderName *string
+	if item.ParentID != nil {
+		// Получаем название папки по ID
+		folder, err := a.folderSvc.GetByID(*item.ParentID)
+		if err == nil && folder != nil {
+			folderName = &folder.Name
+		}
+	}
+
+	bookmark := models.Bookmark{
+		ID:          item.ID,
+		Title:       item.Name,
+		URL:         "",
+		Description: "",
+		FolderID:    item.ParentID,
+		FolderName:  folderName,
+	}
+
+	if item.URL != nil {
+		bookmark.URL = *item.URL
+	}
+	if item.Description != nil {
+		bookmark.Description = *item.Description
+	}
+	if item.Icon != nil {
+		bookmark.Icon = item.Icon
+	}
+
+	a.current = &bookmark
 }
 
 // reloadFolders перезагружает список папок
@@ -291,20 +456,60 @@ func (a *App) fillFolderList() error {
 }
 
 func (a *App) showDetails() {
-	if a.current == nil {
+	if a.currentItem == nil {
 		a.detail.SetText("")
 		return
 	}
 
-	b := a.current
-	folderName := "/"
-	if b.FolderName != nil {
-		folderName = *b.FolderName
+	item := a.currentItem
+	var text string
+
+	if item.Type == models.ItemTypeFolder {
+		// Показываем информацию о папке
+		parentName := "Root"
+		if item.ParentID != nil {
+			folder, err := a.folderSvc.GetByID(*item.ParentID)
+			if err == nil && folder != nil {
+				parentName = folder.Name
+			}
+		}
+		text = fmt.Sprintf(
+			"[::b]Type:[::-]\nFolder\n\n[::b]Name:[::-]\n%s\n\n[::b]Parent:[::-]\n%s",
+			item.Name, parentName)
+	} else {
+		// Показываем информацию о закладке
+		b := a.current
+		if b == nil {
+			// Если current не установлен, используем данные из item
+			url := ""
+			if item.URL != nil {
+				url = *item.URL
+			}
+			desc := ""
+			if item.Description != nil {
+				desc = *item.Description
+			}
+			folderName := "/"
+			if item.ParentID != nil {
+				folder, err := a.folderSvc.GetByID(*item.ParentID)
+				if err == nil && folder != nil {
+					folderName = folder.Name
+				}
+			}
+			text = fmt.Sprintf(
+				"[::b]Type:[::-]\nBookmark\n\n[::b]Title:[::-]\n%s\n\n[::b]URL:[::-]\n%s\n\n[::b]Description:[::-]\n%s\n\n[::b]Folder:[::-]\n%s",
+				item.Name, url, desc, folderName)
+		} else {
+			folderName := "/"
+			if b.FolderName != nil {
+				folderName = *b.FolderName
+			}
+			text = fmt.Sprintf(
+				"[::b]Type:[::-]\nBookmark\n\n[::b]Title:[::-]\n%s\n\n[::b]URL:[::-]\n%s\n\n[::b]Description:[::-]\n%s\n\n[::b]Folder:[::-]\n%s",
+				b.Title, b.URL, b.Description, folderName)
+		}
 	}
 
-	text := fmt.Sprintf(
-		"[::b]Title:[::-]\n%s\n\n[::b]URL:[::-]\n%s\n\n[::b]Description:[::-]\n%s\n\n[::b]Folder:[::-]\n%s",
-		b.Title, b.URL, b.Description, folderName)
 	a.detail.SetText(text)
 }
 
@@ -367,14 +572,24 @@ func (a *App) onSearchDone(key tcell.Key) {
 		a.setMode(ModeNormal)
 	case tcell.KeyEscape:
 		a.search.SetText("")
-		a.applyFilter("")
+		// При очистке поиска перезагружаем содержимое папки
+		if err := a.loadFolderContent(); err != nil {
+			a.allItems = []models.Item{}
+			a.items = []models.Item{}
+			a.fillList()
+		}
 		a.setMode(ModeNormal)
 	}
 }
 
 func (a *App) onSelect(index int, mainText, secondaryText string, shortcut rune) {
-	if index >= 0 && index < len(a.filtered) {
-		a.current = &a.filtered[index]
+	if index >= 0 && index < len(a.items) {
+		a.currentItem = &a.items[index]
+		if a.items[index].Type == models.ItemTypeBookmark {
+			a.convertItemToBookmark(&a.items[index])
+		} else {
+			a.current = nil
+		}
 		a.showDetails()
 	}
 }
@@ -471,11 +686,26 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 			return event
 		}
 
-		// Если фокус на списке, обрабатываем обычные команды
+		// Если фокус на списке элементов, обрабатываем обычные команды
 		switch event.Key() {
 		case tcell.KeyEnter:
-			if a.current != nil && a.current.URL != "" {
-				openURL(a.current.URL)
+			if a.currentItem != nil {
+				if a.currentItem.Type == models.ItemTypeBookmark {
+					// Открываем закладку
+					if a.currentItem.URL != nil && *a.currentItem.URL != "" {
+						openURL(*a.currentItem.URL)
+					}
+				} else if a.currentItem.Type == models.ItemTypeFolder {
+					// Переходим в папку
+					folderID := a.currentItem.ID
+					a.selectedFolder = &folderID
+					if err := a.loadFolderContent(); err != nil {
+						a.allItems = []models.Item{}
+						a.items = []models.Item{}
+						a.fillList()
+					}
+					a.updateStatus()
+				}
 			}
 			return nil
 		case tcell.KeyRune:
@@ -495,23 +725,55 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 				a.showForm(&newBookmark, false)
 				return nil
 			case 'e':
-				if a.current != nil {
-					// Create a copy to avoid modifying the original
-					b := *a.current
-					a.showForm(&b, true)
+				if a.currentItem != nil {
+					if a.currentItem.Type == models.ItemTypeBookmark {
+						// Редактируем закладку
+						if a.current == nil {
+							a.convertItemToBookmark(a.currentItem)
+						}
+						if a.current != nil {
+							b := *a.current
+							a.showForm(&b, true)
+						}
+					} else if a.currentItem.Type == models.ItemTypeFolder {
+						// Редактируем папку
+						folder, err := a.folderSvc.GetByID(a.currentItem.ID)
+						if err == nil && folder != nil {
+							f := *folder
+							a.showFolderForm(&f, true)
+						}
+					}
 				}
 				return nil
 			case 'd':
-				if a.current != nil {
-					// Show confirmation
-					confirmMessage := fmt.Sprintf("Are you sure you want to delete bookmark '%s'?", a.current.Title)
-					a.showConfirm(confirmMessage, func() {
-						if err := a.bookmarkSvc.Delete(a.current.ID); err != nil {
-							a.showError(fmt.Sprintf("Error deleting bookmark: %v", err))
-						} else {
-							a.reloadBookmarks()
+				if a.currentItem != nil {
+					if a.currentItem.Type == models.ItemTypeBookmark {
+						// Удаляем закладку
+						if a.current == nil {
+							a.convertItemToBookmark(a.currentItem)
 						}
-					})
+						if a.current != nil {
+							confirmMessage := fmt.Sprintf("Are you sure you want to delete bookmark '%s'?", a.current.Title)
+							a.showConfirm(confirmMessage, func() {
+								if err := a.bookmarkSvc.Delete(a.current.ID); err != nil {
+									a.showError(fmt.Sprintf("Error deleting bookmark: %v", err))
+								} else {
+									a.reloadBookmarks()
+								}
+							})
+						}
+					} else if a.currentItem.Type == models.ItemTypeFolder {
+						// Удаляем папку
+						confirmMessage := fmt.Sprintf("Are you sure you want to delete folder '%s'?", a.currentItem.Name)
+						a.showConfirm(confirmMessage, func() {
+							if err := a.folderSvc.Delete(a.currentItem.ID); err != nil {
+								a.showError(fmt.Sprintf("Error deleting folder: %v", err))
+							} else {
+								a.reloadFolders()
+								a.reloadBookmarks()
+							}
+						})
+					}
 				}
 				return nil
 			case 'q':

@@ -170,3 +170,9 @@ func (s *FolderService) Update(f *models.Folder) error {
 func (s *FolderService) Delete(id int) error {
 	return s.repo.Folders().Delete(id)
 }
+
+// GetFolderContent returns all items (bookmarks and subfolders) in a folder
+// If folderID is nil, returns all root items (bookmarks without folder and root folders)
+func (s *FolderService) GetFolderContent(folderID *int) ([]models.Item, error) {
+	return s.repo.Folders().GetFolderContent(folderID)
+}

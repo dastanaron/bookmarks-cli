@@ -265,12 +265,8 @@ func (a *App) onFolderSelect(item folderItem) {
 	}
 	a.selectedFolder = newSelectedFolder
 
-	// Update folder list title
-	if item.ID == nil {
-		a.folderList.SetTitle("Folders (All)")
-	} else {
-		a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
-	}
+	// Sync folder list selection (updates title and selection)
+	a.syncFolderListSelection()
 
 	// Load contents of selected folder
 	if err := a.loadFolderContent(); err != nil {
@@ -452,7 +448,50 @@ func (a *App) fillFolderList() error {
 	buildList(nil, 1)
 
 	a.folderList.SetTitle("Folders (All)")
+	// Sync folder list selection with current selected folder
+	a.syncFolderListSelection()
 	return nil
+}
+
+// syncFolderListSelection synchronizes the selection in the left folder list with the current selectedFolder
+func (a *App) syncFolderListSelection() {
+	var targetIndex int = 0 // Default to "All Bookmarks"
+	found := false
+
+	if a.selectedFolder != nil {
+		// Find the index of the folder in folderItems
+		for i, item := range a.folderItems {
+			if item.ID != nil && *item.ID == *a.selectedFolder {
+				targetIndex = i
+				found = true
+				break
+			}
+		}
+
+		// If folder not found (e.g., after deletion), reset to root
+		if !found {
+			a.selectedFolder = nil
+			targetIndex = 0
+		}
+	}
+
+	// Set current item in folder list
+	if targetIndex < a.folderList.GetItemCount() {
+		a.folderList.SetCurrentItem(targetIndex)
+	}
+
+	// Update folder list title
+	if a.selectedFolder == nil {
+		a.folderList.SetTitle("Folders (All)")
+	} else {
+		// Find folder name
+		for _, item := range a.folderItems {
+			if item.ID != nil && *item.ID == *a.selectedFolder {
+				a.folderList.SetTitle(fmt.Sprintf("Folders (%s)", item.Name))
+				break
+			}
+		}
+	}
 }
 
 func (a *App) showDetails() {
@@ -699,6 +738,8 @@ func (a *App) globalInput(event *tcell.EventKey) *tcell.EventKey {
 					// Navigate into folder
 					folderID := a.currentItem.ID
 					a.selectedFolder = &folderID
+					// Sync folder list selection with selected folder
+					a.syncFolderListSelection()
 					if err := a.loadFolderContent(); err != nil {
 						a.allItems = []models.Item{}
 						a.items = []models.Item{}
